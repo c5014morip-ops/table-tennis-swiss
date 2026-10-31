@@ -7,7 +7,7 @@
     <style>
         body {
             font-family: system-ui, -apple-system, sans-serif;
-            max-width: 800px;
+            max-width: 900px;
             margin: 0 auto;
             padding: 20px;
             background-color: #f7f9fa;
@@ -30,19 +30,38 @@
             align-items: center;
             background: #fdfdfd;
             border: 1px solid #e1e8ed;
-            padding: 12px 15px;
+            padding: 15px;
             border-radius: 6px;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .player-side {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
+            min-width: 250px;
         }
         .player-name {
             font-weight: bold;
-            font-size: 16px;
-            width: 40%;
-            text-align: center;
+            font-size: 15px;
+            flex-grow: 1;
         }
         .vs {
             color: #7f8c8d;
             font-weight: bold;
+            padding: 0 10px;
+        }
+        select, input[type="number"] {
+            padding: 6px 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+            background: #fff;
+        }
+        select {
+            cursor: pointer;
         }
         button {
             background-color: #3498db;
@@ -62,6 +81,15 @@
         .secondary-btn:hover {
             background-color: #7f8c8d;
         }
+        .success-btn {
+            background-color: #2ecc71;
+            font-size: 16px;
+            padding: 12px 20px;
+            width: 100%;
+        }
+        .success-btn:hover {
+            background-color: #27ae60;
+        }
         .nav-bar {
             display: flex;
             justify-content: space-between;
@@ -73,19 +101,22 @@
 
     <div class="nav-bar">
         <button class="secondary-btn" onclick="goBack()">← 選手登録に戻る</button>
-        <span id="roundTitle" style="font-weight: bold; font-size: 18px; align-self: center;">第 1 ラウンド</span>
+        <span id="roundTitle" style="font-weight: bold; font-size: 18px; align-self: center;">第 1 ラウンド対戦カード</span>
     </div>
 
-    <h1>対戦カード一覧</h1>
+    <h1>試合結果の入力</h1>
 
     <div class="card">
         <div id="matchesContainer">
-            <!-- JavaScriptで対戦カードがここに挿入されます -->
+            <!-- JavaScriptで動的に生成されます -->
+        </div>
+
+        <div style="margin-top: 25px;">
+            <button class="success-btn" onclick="saveAndNextRound()">結果を確定して次へ進む</button>
         </div>
     </div>
 
     <script>
-        // 保存された大会データをロード
         const dataJson = localStorage.getItem('tt_tournament');
         if (!dataJson) {
             alert("大会データが見つかりません。選手登録画面に戻ります。");
@@ -94,47 +125,107 @@
 
         const tournament = JSON.parse(dataJson);
 
-        // ページ読み込み時に第1ラウンドのペアリングを生成して表示
+        // 現在のラウンドの対戦ペア構造を保持する変数
+        let currentMatches = [];
+
         window.onload = function() {
             generateFirstRoundPairings();
         };
 
-        // 第1ラウンドのペアリング生成（ランダム、奇数なら1人不戦勝BYE）
+        // 第1ラウンドのペアリング生成
         function generateFirstRoundPairings() {
             const container = document.getElementById('matchesContainer');
             container.innerHTML = "";
 
-            // 選手をランダムにシャッフル
             let shuffled = [...tournament.players].sort(() => Math.random() - 0.5);
+            currentMatches = [];
 
-            let html = "";
             for (let i = 0; i < shuffled.length; i += 2) {
                 if (i + 1 < shuffled.length) {
-                    // 通常の対戦ペア
+                    // 通常ペア
+                    currentMatches.push({
+                        player1: shuffled[i],
+                        player2: shuffled[i+1],
+                        result: null // 'p1_win', 'p2_win', または 'bye'
+                    });
+                } else {
+                    // 奇数人数の不戦勝（BYE）
+                    currentMatches.push({
+                        player1: shuffled[i],
+                        player2: null,
+                        result: 'bye'
+                    });
+                }
+            }
+
+            renderMatches();
+        }
+
+        // 画面に対戦カードとプルダウンを描画する
+        function renderMatches() {
+            const container = document.getElementById('matchesContainer');
+            let html = "";
+
+            currentMatches.forEach((match, index) => {
+                if (match.result === 'bye') {
+                    // 不戦勝の表示
                     html += `
-                        <div class="match-box">
-                            <span class="player-name">${escapeHtml(shuffled[i].name)}</span>
-                            <span class="vs">VS</span>
-                            <span class="player-name">${escapeHtml(shuffled[i+1].name)}</span>
+                        <div class="match-box" style="background: #eefdf0;">
+                            <div class="player-side">
+                                <span class="player-name">${escapeHtml(match.player1.name)}</span>
+                            </div>
+                            <span class="vs" style="color: #27ae60;">不戦勝 (自動勝ち)</span>
+                            <div class="player-side" style="justify-content: flex-end; color: #888;">
+                                <span>-</span>
+                            </div>
                         </div>
                     `;
                 } else {
-                    // 奇数人数時の不戦勝（BYE）
+                    // 通常試合の入力フォーム
                     html += `
-                        <div class="match-box" style="background: #eefdf0;">
-                            <span class="player-name">${escapeHtml(shuffled[i].name)}</span>
-                            <span class="vs" style="color: #27ae60;">不戦勝 (BYE)</span>
-                            <span class="player-name" style="color: #888;">なし</span>
+                        <div class="match-box">
+                            <div class="player-side">
+                                <span class="player-name">${escapeHtml(match.player1.name)}</span>
+                                <select id="result_${index}" onchange="updateMatchResult(${index})">
+                                    <option value="" ${match.result === null ? 'selected' : ''}>勝敗を選択</option>
+                                    <option value="p1_win" ${match.result === 'p1_win' ? 'selected' : ''}>勝ち (${escapeHtml(match.player1.name)})</option>
+                                    <option value="p2_win" ${match.result === 'p2_win' ? 'selected' : ''}>勝ち (${escapeHtml(match.player2.name)})</option>
+                                </select>
+                            </div>
+                            <span class="vs">VS</span>
+                            <div class="player-side" style="justify-content: flex-end;">
+                                <span class="player-name" style="text-align: right;">${escapeHtml(match.player2.name)}</span>
+                            </div>
                         </div>
                     `;
                 }
-            }
+            });
 
             container.innerHTML = html;
         }
 
+        // プルダウンが変更されたときの状態更新
+        function updateMatchResult(index) {
+            const select = document.getElementById(`result_${index}`);
+            currentMatches[index].result = select.value;
+        }
+
+        // 結果を確定して次の処理へ（次ラウンド作成などへの布石）
+        function saveAndNextRound() {
+            // 未入力の試合がないかチェック
+            for (let i = 0; i < currentMatches.length; i++) {
+                if (currentMatches[i].result === null) {
+                    alert(`すべての試合の勝敗を選択してください。（未選択の試合があります）`);
+                    return;
+                }
+            }
+
+            alert("第1ラウンドの結果が正常に記録されました！（次回のラウンド生成ロジックへ続きます）");
+            // ここでポイントの加算や次ラウンドのペアリング（スイスドロー本番の計算）を行っていきます
+        }
+
         function goBack() {
-            if (confirm("選手登録画面に戻りますか？（現在の対戦進行状況はリセットされます）")) {
+            if (confirm("選手登録画面に戻りますか？（現在の進行状況はリセットされます）")) {
                 window.location.href = 'index.html';
             }
         }
