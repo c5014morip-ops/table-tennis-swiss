@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>卓球スイスドロー大会 - 対戦カード</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f7f9fa;
+            color: #333;
+        }
+        h1, h2 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .match-box {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #fdfdfd;
+            border: 1px solid #e1e8ed;
+            padding: 12px 15px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+        .player-name {
+            font-weight: bold;
+            font-size: 16px;
+            width: 40%;
+            text-align: center;
+        }
+        .vs {
+            color: #7f8c8d;
+            font-weight: bold;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        .secondary-btn {
+            background-color: #95a5a6;
+        }
+        .secondary-btn:hover {
+            background-color: #7f8c8d;
+        }
+        .nav-bar {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="nav-bar">
+        <button class="secondary-btn" onclick="goBack()">← 選手登録に戻る</button>
+        <span id="roundTitle" style="font-weight: bold; font-size: 18px; align-self: center;">第 1 ラウンド</span>
+    </div>
+
+    <h1>対戦カード一覧</h1>
+
+    <div class="card">
+        <div id="matchesContainer">
+            <!-- JavaScriptで対戦カードがここに挿入されます -->
+        </div>
+    </div>
+
+    <script>
+        // 保存された大会データをロード
+        const dataJson = localStorage.getItem('tt_tournament');
+        if (!dataJson) {
+            alert("大会データが見つかりません。選手登録画面に戻ります。");
+            window.location.href = 'index.html';
+        }
+
+        const tournament = JSON.parse(dataJson);
+
+        // ページ読み込み時に第1ラウンドのペアリングを生成して表示
+        window.onload = function() {
+            generateFirstRoundPairings();
+        };
+
+        // 第1ラウンドのペアリング生成（ランダム、奇数なら1人不戦勝BYE）
+        function generateFirstRoundPairings() {
+            const container = document.getElementById('matchesContainer');
+            container.innerHTML = "";
+
+            // 選手をランダムにシャッフル
+            let shuffled = [...tournament.players].sort(() => Math.random() - 0.5);
+
+            let html = "";
+            for (let i = 0; i < shuffled.length; i += 2) {
+                if (i + 1 < shuffled.length) {
+                    // 通常の対戦ペア
+                    html += `
+                        <div class="match-box">
+                            <span class="player-name">${escapeHtml(shuffled[i].name)}</span>
+                            <span class="vs">VS</span>
+                            <span class="player-name">${escapeHtml(shuffled[i+1].name)}</span>
+                        </div>
+                    `;
+                } else {
+                    // 奇数人数時の不戦勝（BYE）
+                    html += `
+                        <div class="match-box" style="background: #eefdf0;">
+                            <span class="player-name">${escapeHtml(shuffled[i].name)}</span>
+                            <span class="vs" style="color: #27ae60;">不戦勝 (BYE)</span>
+                            <span class="player-name" style="color: #888;">なし</span>
+                        </div>
+                    `;
+                }
+            }
+
+            container.innerHTML = html;
+        }
+
+        function goBack() {
+            if (confirm("選手登録画面に戻りますか？（現在の対戦進行状況はリセットされます）")) {
+                window.location.href = 'index.html';
+            }
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/[&'`<>""]/g, function(match) {
+                const escape = {
+                    '&': '&amp;',
+                    "'": '&#x27;',
+                    '`': '&#x60;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                };
+                return escape[match];
+            });
+        }
+    </script>
+</body>
+</html>
