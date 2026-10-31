@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>卓球スイスドロー大会ジェネレーター - 選手登録</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f7f9fa;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        .danger-btn {
+            background-color: #e74c3c;
+        }
+        .danger-btn:hover {
+            background-color: #c0392b;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .player-count {
+            font-weight: bold;
+            color: #e67e22;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>卓球スイスドロー大会ジェネレーター</h1>
+
+    <!-- 選手登録カード -->
+    <div class="card">
+        <h2>選手登録</h2>
+        
+        <!-- CSVファイル取り込み -->
+        <div class="form-group">
+            <label for="csvFileInput">CSVファイルから一括インポート</label>
+            <p style="font-size: 12px; color: #666; margin-top: 0;">※ 1行目に名前（例: 山田太郎）が並んでいるCSVファイルをアップロードしてください。</p>
+            <input type="file" id="csvFileInput" accept=".csv">
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+
+        <!-- 1人ずつ追加 -->
+        <div class="form-group">
+            <label for="playerName">選手名を追加</label>
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="playerName" placeholder="例: 山田 太郎">
+                <button onclick="addPlayer()">追加</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 登録選手一覧カード -->
+    <div class="card">
+        <h2>登録選手一覧 (<span id="playerCount" class="player-count">0</span>名)</h2>
+        <div style="margin-bottom: 10px;">
+            <button class="danger-btn" onclick="clearPlayers()">全選手をクリア</button>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 50px;">No.</th>
+                    <th>選手名</th>
+                    <th style="width: 80px; text-align: center;">操作</th>
+                </tr>
+            </thead>
+            <tbody id="playerTableBody">
+                <!-- JavaScriptで動的に挿入されます -->
+                <tr>
+                    <td colspan="3" style="text-align: center; color: #888;">選手がまだ登録されていません</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // 選手データを格納する配列
+        let players = [];
+
+        // 選手を1人追加する関数
+        function addPlayer() {
+            const input = document.getElementById('playerName');
+            const name = input.value.trim();
+            if (name === "") {
+                alert("選手名を入力してください。");
+                return;
+            }
+            players.push(name);
+            input.value = "";
+            updatePlayerTable();
+        }
+
+        // 選手を削除する関数
+        function removePlayer(index) {
+            players.splice(index, 1);
+            updatePlayerTable();
+        }
+
+        // 全選手クリア
+        function clearPlayers() {
+            if (confirm("登録されている選手をすべて削除しますか？")) {
+                players = [];
+                updatePlayerTable();
+            }
+        }
+
+        // テーブルとカウンターを更新する関数
+        function updatePlayerTable() {
+            const tbody = document.getElementById('playerTableBody');
+            const countSpan = document.getElementById('playerCount');
+            
+            countSpan.textContent = players.length;
+            tbody.innerHTML = "";
+
+            if (players.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #888;">選手がまだ登録されていません</td></tr>`;
+                return;
+            }
+
+            players.forEach((player, index) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${escapeHtml(player)}</td>
+                    <td style="text-align: center;">
+                        <button class="danger-btn" style="padding: 4px 8px; font-size: 12px;" onclick="removePlayer(${index})">削除</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // XSS対策の簡易エスケープ
+        function escapeHtml(str) {
+            return str.replace(/[&'`<>""]/g, function(match) {
+                const escape = {
+                    '&': '&amp;',
+                    "'": '&#x27;',
+                    '`': '&#x60;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                };
+                return escape[match];
+            });
+        }
+
+        // CSVファイル読み込み処理
+        document.getElementById('csvFileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const text = e.target.result;
+                parseCSV(text);
+                // 同じファイルを再度選択できるようにリセット
+                e.target.value = '';
+            };
+            reader.readAsText(file, 'UTF-8');
+        });
+
+        // CSVテキストの解析
+        function parseCSV(text) {
+            const lines = text.split(/\r\n|\n/);
+            let addedCount = 0;
+
+            lines.forEach(line => {
+                // カンマ区切りや空白を考慮（シンプルな例として1列目を選手名とする）
+                const cols = line.split(',');
+                if (cols.length > 0) {
+                    const name = cols[0].trim().replace(/^["']|["']$/g, ''); // クォーテーション除去
+                    if (name !== "" && !players.includes(name)) {
+                        players.push(name);
+                        addedCount++;
+                    }
+                }
+            });
+
+            if (addedCount > 0) {
+                updatePlayerTable();
+                alert(`${addedCount}人の選手を追加しました！`);
+            } else {
+                alert("有効な選手データが見つかりませんでした。");
+            }
+        }
+    </script>
+</body>
+</html>
