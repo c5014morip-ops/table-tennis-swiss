@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>卓球スイスドロー大会 - 対戦カード</title>
+    <title>卓球スイスドロー大会 - 対戦カードと審判割り当て</title>
     <style>
         body {
             font-family: system-ui, -apple-system, sans-serif;
-            max-width: 900px;
+            max-width: 950px;
             margin: 0 auto;
             padding: 20px;
             background-color: #f7f9fa;
@@ -25,43 +25,72 @@
             margin-bottom: 20px;
         }
         .match-box {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
             background: #fdfdfd;
             border: 1px solid #e1e8ed;
             padding: 15px;
             border-radius: 6px;
-            margin-bottom: 12px;
+            margin-bottom: 15px;
+        }
+        .match-main {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             gap: 10px;
             flex-wrap: wrap;
         }
         .player-side {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 10px;
             flex: 1;
-            min-width: 250px;
+            min-width: 280px;
         }
         .player-name {
             font-weight: bold;
             font-size: 15px;
             flex-grow: 1;
         }
+        .player-info {
+            font-size: 12px;
+            color: #7f8c8d;
+            font-weight: normal;
+        }
         .vs {
             color: #7f8c8d;
             font-weight: bold;
             padding: 0 10px;
         }
-        select, input[type="number"] {
+        select {
             padding: 6px 10px;
             border: 1px solid #ccc;
             border-radius: 4px;
             font-size: 14px;
             background: #fff;
-        }
-        select {
             cursor: pointer;
+        }
+        .score-select {
+            width: 60px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .winner-badge {
+            font-size: 12px;
+            background: #2ecc71;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-left: 5px;
+            display: none;
+        }
+        .referee-section {
+            margin-top: 10px;
+            padding-top: 8px;
+            border-top: 1px dashed #e1e8ed;
+            font-size: 13px;
+            color: #555;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
         button {
             background-color: #3498db;
@@ -95,6 +124,19 @@
             justify-content: space-between;
             margin-bottom: 20px;
         }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: center;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
     </style>
 </head>
 <body>
@@ -104,15 +146,35 @@
         <span id="roundTitle" style="font-weight: bold; font-size: 18px; align-self: center;">第 1 ラウンド対戦カード</span>
     </div>
 
-    <h1>試合結果の入力</h1>
+    <h1 id="pageHeading">試合結果と審判の入力</h1>
 
-    <div class="card">
+    <div class="card" id="matchesCard">
         <div id="matchesContainer">
-            <!-- JavaScriptで動的に生成されます -->
+            <!-- JavaScriptで動的に生成 -->
         </div>
 
         <div style="margin-top: 25px;">
-            <button class="success-btn" onclick="saveAndNextRound()">結果を確定して次へ進む</button>
+            <button class="success-btn" id="nextRoundBtn" onclick="saveAndNextRound()">結果を確定して次のラウンドへ</button>
+        </div>
+    </div>
+
+    <!-- 最終順位表カード -->
+    <div class="card" id="standingsCard" style="display: none;">
+        <h2>大会最終結果</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>順位</th>
+                    <th>選手名</th>
+                    <th>勝ち点 (勝数)</th>
+                    <th>得失ゲーム差</th>
+                </tr>
+            </thead>
+            <tbody id="standingsTableBody">
+            </tbody>
+        </table>
+        <div style="margin-top: 20px;">
+            <button class="secondary-btn" style="width: 100%;" onclick="goBack()">トップ（選手登録）に戻る</button>
         </div>
     </div>
 
@@ -123,78 +185,226 @@
             window.location.href = 'index.html';
         }
 
-        const tournament = JSON.parse(dataJson);
-
-        // 現在のラウンドの対戦ペア構造を保持する変数
+        let tournament = JSON.parse(dataJson);
         let currentMatches = [];
 
         window.onload = function() {
-            generateFirstRoundPairings();
+            tournament.players.forEach(p => {
+                if (p.points === undefined) p.points = 0;
+                if (p.gameDiff === undefined) p.gameDiff = 0;
+                if (!p.opponents) p.opponents = [];
+            });
+
+            if (tournament.currentRound === 1 && !tournament.round1Generated) {
+                generateFirstRoundPairings();
+                tournament.round1Generated = true;
+                saveTournamentData();
+            } else {
+                generateSwissPairings();
+            }
         };
 
-        // 第1ラウンドのペアリング生成
-        function generateFirstRoundPairings() {
-            const container = document.getElementById('matchesContainer');
-            container.innerHTML = "";
+        function saveTournamentData() {
+            localStorage.setItem('tt_tournament', JSON.stringify(tournament));
+        }
 
+        // 第1ラウンド生成（ランダム + 審判割り当て）
+        function generateFirstRoundPairings() {
             let shuffled = [...tournament.players].sort(() => Math.random() - 0.5);
             currentMatches = [];
 
+            let matchPairs = [];
+            let restingPlayers = [];
+
             for (let i = 0; i < shuffled.length; i += 2) {
                 if (i + 1 < shuffled.length) {
-                    // 通常ペア
-                    currentMatches.push({
+                    matchPairs.push({
                         player1: shuffled[i],
                         player2: shuffled[i+1],
-                        result: null // 'p1_win', 'p2_win', または 'bye'
+                        score1: null,
+                        score2: null,
+                        result: null,
+                        referee: null
                     });
                 } else {
-                    // 奇数人数の不戦勝（BYE）
-                    currentMatches.push({
+                    // 奇数人数の場合のBYE（不戦勝）
+                    matchPairs.push({
                         player1: shuffled[i],
                         player2: null,
-                        result: 'bye'
+                        score1: 3,
+                        score2: 0,
+                        result: 'bye',
+                        referee: null
                     });
+                    restingPlayers.push(shuffled[i]); // BYEの選手は最初は試合なし
                 }
             }
 
+            assignReferees(matchPairs, restingPlayers);
+            currentMatches = matchPairs;
             renderMatches();
         }
 
-        // 画面に対戦カードとプルダウンを描画する
+        // 第2ラウンド以降のスイスドローペアリング生成 + 審判割り当て
+        function generateSwissPairings() {
+            document.getElementById('roundTitle').textContent = `第 ${tournament.currentRound} / ${tournament.totalRounds} ラウンド対戦カード`;
+
+            let sortedPlayers = [...tournament.players].sort((a, b) => {
+                if (b.points !== a.points) return b.points - a.points;
+                if (b.gameDiff !== a.gameDiff) return b.gameDiff - a.gameDiff;
+                return Math.random() - 0.5;
+            });
+
+            currentMatches = [];
+            let unassigned = [...sortedPlayers];
+            let restingPlayers = [];
+
+            if (unassigned.length % 2 !== 0) {
+                let byeIndex = unassigned.length - 1;
+                for (let i = unassigned.length - 1; i >= 0; i--) {
+                    if (!unassigned[i].hadBye) {
+                        byeIndex = i;
+                        break;
+                    }
+                }
+                const byePlayer = unassigned.splice(byeIndex, 1)[0];
+                byePlayer.hadBye = true;
+                currentMatches.push({
+                    player1: byePlayer,
+                    player2: null,
+                    score1: 3,
+                    score2: 0,
+                    result: 'bye',
+                    referee: null
+                });
+                restingPlayers.push(byePlayer);
+            }
+
+            while (unassigned.length > 0) {
+                let p1 = unassigned.shift();
+                let p2Index = -1;
+
+                for (let i = 0; i < unassigned.length; i++) {
+                    if (!p1.opponents.includes(unassigned[i].id)) {
+                        p2Index = i;
+                        break;
+                    }
+                }
+                if (p2Index === -1) p2Index = 0;
+                let p2 = unassigned.splice(p2Index, 1)[0];
+
+                currentMatches.push({
+                    player1: p1,
+                    player2: p2,
+                    score1: null,
+                    score2: null,
+                    result: null,
+                    referee: null
+                });
+            }
+
+            assignReferees(currentMatches, restingPlayers);
+            renderMatches();
+        }
+
+        // 審判を自動割り振りする関数
+        function assignReferees(matches, restingPlayers) {
+            // 試合がある選手以外のプールを作る（BYEの選手や、待機中の選手を優先）
+            let availableReferees = [...restingPlayers];
+            
+            // もし足りなければ、全選手の中から順番に回す
+            if (availableReferees.length < matches.length) {
+                tournament.players.forEach(p => {
+                    if (!availableReferees.some(r => r.id === p.id)) {
+                        availableReferees.push(p);
+                    }
+                });
+            }
+
+            let refIndex = 0;
+            matches.forEach(match => {
+                if (match.result === 'bye') {
+                    match.referee = null; // BYEの試合には審判不要
+                    return;
+                }
+
+                // 自分自身の試合の審判にならないようにチェック
+                let assignedRef = null;
+                for (let i = 0; i < availableReferees.length; i++) {
+                    let candidate = availableReferees[refIndex % availableReferees.length];
+                    refIndex++;
+                    if (candidate.id !== match.player1.id && candidate.id !== match.player2.id) {
+                        assignedRef = candidate;
+                        break;
+                    }
+                }
+                match.referee = assignedRef ? assignedRef.id : tournament.players[0].id;
+            });
+        }
+
+        // 画面描画
         function renderMatches() {
+            document.getElementById('roundTitle').textContent = `第 ${tournament.currentRound} / ${tournament.totalRounds} ラウンド対戦カード`;
             const container = document.getElementById('matchesContainer');
             let html = "";
 
             currentMatches.forEach((match, index) => {
                 if (match.result === 'bye') {
-                    // 不戦勝の表示
                     html += `
                         <div class="match-box" style="background: #eefdf0;">
-                            <div class="player-side">
-                                <span class="player-name">${escapeHtml(match.player1.name)}</span>
-                            </div>
-                            <span class="vs" style="color: #27ae60;">不戦勝 (自動勝ち)</span>
-                            <div class="player-side" style="justify-content: flex-end; color: #888;">
-                                <span>-</span>
+                            <div class="match-main">
+                                <div class="player-side">
+                                    <span class="player-name">${escapeHtml(match.player1.name)} <span class="player-info">(${match.player1.points}勝)</span></span>
+                                    <span style="color: #2ecc71; font-weight: bold;">不戦勝 (自動勝ち)</span>
+                                </div>
+                                <span class="vs" style="color: #27ae60;">BYE</span>
+                                <div class="player-side" style="justify-content: flex-end; color: #888;">
+                                    <span>-</span>
+                                </div>
                             </div>
                         </div>
                     `;
                 } else {
-                    // 通常試合の入力フォーム
+                    const scoreOptions = (selectedVal) => {
+                        let opts = `<option value="" ${selectedVal === null ? 'selected' : ''}>-</option>`;
+                        for (let s = 0; s <= 3; s++) {
+                            opts += `<option value="${s}" ${selectedVal === s ? 'selected' : ''}>${s}</option>`;
+                        }
+                        return opts;
+                    };
+
+                    // 審判のプルダウン用オプション生成
+                    let refOptions = `<option value="">審判を選択</option>`;
+                    tournament.players.forEach(p => {
+                        const isSelected = match.referee === p.id ? 'selected' : '';
+                        refOptions += `<option value="${p.id}" ${isSelected}>${escapeHtml(p.name)}</option>`;
+                    });
+
+                    const p1WinStyle = match.result === 'p1_win' ? 'display: inline-block;' : 'display: none;';
+                    const p2WinStyle = match.result === 'p2_win' ? 'display: inline-block;' : 'display: none;';
+
                     html += `
                         <div class="match-box">
-                            <div class="player-side">
-                                <span class="player-name">${escapeHtml(match.player1.name)}</span>
-                                <select id="result_${index}" onchange="updateMatchResult(${index})">
-                                    <option value="" ${match.result === null ? 'selected' : ''}>勝敗を選択</option>
-                                    <option value="p1_win" ${match.result === 'p1_win' ? 'selected' : ''}>勝ち (${escapeHtml(match.player1.name)})</option>
-                                    <option value="p2_win" ${match.result === 'p2_win' ? 'selected' : ''}>勝ち (${escapeHtml(match.player2.name)})</option>
-                                </select>
+                            <div class="match-main">
+                                <div class="player-side">
+                                    <span class="player-name">${escapeHtml(match.player1.name)} <span class="player-info">(${match.player1.points}勝)</span> <span id="badge1_${index}" class="winner-badge" style="${p1WinStyle}">勝</span></span>
+                                    <select class="score-select" id="score1_${index}" onchange="updateScore(${index})">
+                                        ${scoreOptions(match.score1)}
+                                    </select>
+                                </div>
+                                <span class="vs">-</span>
+                                <div class="player-side" style="justify-content: flex-end;">
+                                    <select class="score-select" id="score2_${index}" onchange="updateScore(${index})">
+                                        ${scoreOptions(match.score2)}
+                                    </select>
+                                    <span class="player-name" style="text-align: right;"><span id="badge2_${index}" class="winner-badge" style="${p2WinStyle}">勝</span> ${escapeHtml(match.player2.name)} <span class="player-info">(${match.player2.points}勝)</span></span>
+                                </div>
                             </div>
-                            <span class="vs">VS</span>
-                            <div class="player-side" style="justify-content: flex-end;">
-                                <span class="player-name" style="text-align: right;">${escapeHtml(match.player2.name)}</span>
+                            <div class="referee-section">
+                                <span>📋 審判担当:</span>
+                                <select id="ref_${index}" onchange="updateReferee(${index})">
+                                    ${refOptions}
+                                </select>
                             </div>
                         </div>
                     `;
@@ -204,28 +414,121 @@
             container.innerHTML = html;
         }
 
-        // プルダウンが変更されたときの状態更新
-        function updateMatchResult(index) {
-            const select = document.getElementById(`result_${index}`);
-            currentMatches[index].result = select.value;
+        function updateScore(index) {
+            const s1Val = document.getElementById(`score1_${index}`).value;
+            const s2Val = document.getElementById(`score2_${index}`).value;
+
+            currentMatches[index].score1 = s1Val === "" ? null : parseInt(s1Val, 10);
+            currentMatches[index].score2 = s2Val === "" ? null : parseInt(s2Val, 10);
+
+            const badge1 = document.getElementById(`badge1_${index}`);
+            const badge2 = document.getElementById(`badge2_${index}`);
+
+            const s1 = currentMatches[index].score1;
+            const s2 = currentMatches[index].score2;
+
+            if (s1 !== null && s2 !== null) {
+                if (s1 === 3 && (s2 >= 0 && s2 <= 2)) {
+                    currentMatches[index].result = 'p1_win';
+                    badge1.style.display = 'inline-block';
+                    badge2.style.display = 'none';
+                } else if (s2 === 3 && (s1 >= 0 && s1 <= 2)) {
+                    currentMatches[index].result = 'p2_win';
+                    badge1.style.display = 'none';
+                    badge2.style.display = 'inline-block';
+                } else {
+                    currentMatches[index].result = 'invalid';
+                    badge1.style.display = 'none';
+                    badge2.style.display = 'none';
+                }
+            } else {
+                currentMatches[index].result = null;
+                badge1.style.display = 'none';
+                badge2.style.display = 'none';
+            }
         }
 
-        // 結果を確定して次の処理へ（次ラウンド作成などへの布石）
+        function updateReferee(index) {
+            const refSelect = document.getElementById(`ref_${index}`);
+            currentMatches[index].referee = refSelect.value ? parseInt(refSelect.value, 10) : null;
+        }
+
+        // 結果確定＆次ラウンド生成処理
         function saveAndNextRound() {
-            // 未入力の試合がないかチェック
             for (let i = 0; i < currentMatches.length; i++) {
-                if (currentMatches[i].result === null) {
-                    alert(`すべての試合の勝敗を選択してください。（未選択の試合があります）`);
+                const m = currentMatches[i];
+                if (m.result === null) {
+                    alert(`すべての試合のスコアを入力してください。`);
+                    return;
+                }
+                if (m.result === 'invalid') {
+                    alert(`試合 ${i + 1} のスコアが無効です。どちらかが3ゲーム先取（3-0, 3-1, 3-2）になるように入力してください。`);
                     return;
                 }
             }
 
-            alert("第1ラウンドの結果が正常に記録されました！（次回のラウンド生成ロジックへ続きます）");
-            // ここでポイントの加算や次ラウンドのペアリング（スイスドロー本番の計算）を行っていきます
+            currentMatches.forEach(m => {
+                let p1 = tournament.players.find(p => p.id === m.player1.id);
+
+                if (m.result === 'bye') {
+                    p1.points += 1;
+                    p1.gameDiff += 3;
+                } else {
+                    let p2 = tournament.players.find(p => p.id === m.player2.id);
+
+                    p1.opponents.push(p2.id);
+                    p2.opponents.push(p1.id);
+
+                    p1.gameDiff += (m.score1 - m.score2);
+                    p2.gameDiff += (m.score2 - m.score1);
+
+                    if (m.result === 'p1_win') {
+                        p1.points += 1;
+                    } else if (m.result === 'p2_win') {
+                        p2.points += 1;
+                    }
+                }
+            });
+
+            if (tournament.currentRound >= tournament.totalRounds) {
+                alert(`全 ${tournament.totalRounds} ラウンドが終了しました！最終順位を発表します。`);
+                showFinalStandings();
+            } else {
+                tournament.currentRound += 1;
+                saveTournamentData();
+                alert(`第 ${tournament.currentRound - 1} ラウンドの結果を保存しました。第 ${tournament.currentRound} ラウンドの対戦カードを生成します。`);
+                generateSwissPairings();
+            }
+        }
+
+        function showFinalStandings() {
+            document.getElementById('matchesCard').style.display = 'none';
+            document.getElementById('pageHeading').textContent = "大会結果発表";
+            document.getElementById('standingsCard').style.display = 'block';
+
+            let sorted = [...tournament.players].sort((a, b) => {
+                if (b.points !== a.points) return b.points - a.points;
+                return b.gameDiff - a.gameDiff;
+            });
+
+            const tbody = document.getElementById('standingsTableBody');
+            tbody.innerHTML = "";
+
+            sorted.forEach((p, index) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="font-weight: bold;">第 ${index + 1} 位</td>
+                    <td>${escapeHtml(p.name)}</td>
+                    <td>${p.points} 勝</td>
+                    <td>${p.gameDiff > 0 ? '+' + p.gameDiff : p.gameDiff}</td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
 
         function goBack() {
-            if (confirm("選手登録画面に戻りますか？（現在の進行状況はリセットされます）")) {
+            if (confirm("選手登録に戻りますか？（現在の大会進行状況はクリアされます）")) {
+                localStorage.removeItem('tt_tournament');
                 window.location.href = 'index.html';
             }
         }
