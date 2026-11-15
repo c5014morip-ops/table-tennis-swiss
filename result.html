@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>大会結果発表 - 勝率ランキング</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 950px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f7f9fa;
+            color: #333;
+        }
+        h1, h2 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: center;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .nav-bar {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        .secondary-btn {
+            background-color: #95a5a6;
+        }
+        .secondary-btn:hover {
+            background-color: #7f8c8d;
+        }
+        .podium-1 { background-color: #fff9db !important; font-weight: bold; }
+        .podium-2 { background-color: #f1f3f5 !important; }
+        .podium-3 { background-color: #fff4e6 !important; }
+    </style>
+</head>
+<body>
+
+    <div class="nav-bar">
+        <button class="secondary-btn" onclick="goTop()">← トップ（選手登録）に戻る</button>
+        <span id="tournamentTitle" style="font-weight: bold; font-size: 18px; align-self: center;">大会結果</span>
+    </div>
+
+    <h1>🏆 大会結果・勝率ランキング 🏆</h1>
+
+    <div class="card">
+        <h2 id="subTitle">最終順位・成績一覧</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>順位</th>
+                    <th>選手名</th>
+                    <th>勝ち点 (勝数)</th>
+                    <th>試合数</th>
+                    <th>勝率</th>
+                    <th>得失ゲーム差</th>
+                </tr>
+            </thead>
+            <tbody id="resultTableBody">
+                <!-- JavaScriptで動的挿入 -->
+            </tbody>
+        </table>
+
+        <div style="margin-top: 30px; display: flex; gap: 15px;">
+            <button class="secondary-btn" style="flex: 1;" onclick="goTop()">トップ画面に戻る</button>
+        </div>
+    </div>
+
+    <script>
+        const activeJson = localStorage.getItem('tt_active_tournament') || localStorage.getItem('tt_tournament');
+        if (!activeJson) {
+            alert("大会データが見つかりません。トップ画面に戻ります。");
+            window.location.href = 'index.html';
+        }
+
+        const tournament = JSON.parse(activeJson);
+
+        window.onload = function() {
+            if (tournament.name) {
+                document.getElementById('tournamentTitle').textContent = tournament.name;
+            }
+            renderResultTable();
+        };
+
+        function renderResultTable() {
+            const tbody = document.getElementById('resultTableBody');
+            tbody.innerHTML = "";
+
+            // ランキングのソート順（勝ち点順 → 得失ゲーム差順）
+            let sortedPlayers = [...tournament.players].sort((a, b) => {
+                if (b.points !== a.points) return b.points - a.points;
+                return b.gameDiff - a.gameDiff;
+            });
+
+            sortedPlayers.forEach((p, index) => {
+                const played = p.matchesPlayed || tournament.currentRound || 1;
+                const wins = p.points || 0;
+                // 勝率計算 (勝数 / 消化試合数)
+                const winRate = played > 0 ? (wins / played) * 100 : 0;
+
+                let rowClass = "";
+                let rankText = `第 ${index + 1} 位`;
+                if (index === 0) { rowClass = "podium-1"; rankText = "👑 優勝"; }
+                else if (index === 1) { rowClass = "podium-2"; rankText = "🥈 2位"; }
+                else if (index === 2) { rowClass = "podium-3"; rankText = "🥉 3位"; }
+
+                const tr = document.createElement('tr');
+                tr.className = rowClass;
+                tr.innerHTML = `
+                    <td style="font-weight: bold;">${rankText}</td>
+                    <td style="text-align: left; padding-left: 20px; font-weight: bold;">${escapeHtml(p.name)}</td>
+                    <td>${wins} 勝</td>
+                    <td>${played} 試合</td>
+                    <td>${winRate.toFixed(1)}%</td>
+                    <td>${p.gameDiff > 0 ? '+' + p.gameDiff : p.gameDiff}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function goTop() {
+            window.location.href = 'index.html';
+        }
+
+        function escapeHtml(str) {
+            return str.replace(/[&'`<>""]/g, function(match) {
+                const escape = {
+                    '&': '&amp;',
+                    "'": '&#x27;',
+                    '`': '&#x60;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                };
+                return escape[match];
+            });
+        }
+    </script>
+</body>
+</html>

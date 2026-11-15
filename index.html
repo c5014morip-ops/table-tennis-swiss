@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>卓球スイスドロー大会ジェネレーター - 選手登録</title>
+    <title>スイスドロー作成 吉田卓球場用</title>
     <style>
         body {
             font-family: system-ui, -apple-system, sans-serif;
@@ -24,6 +24,13 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             margin-bottom: 20px;
         }
+        .resume-card {
+            background: #eefdf0;
+            border: 2px solid #2ecc71;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
         .form-group {
             margin-bottom: 15px;
         }
@@ -32,12 +39,13 @@
             margin-bottom: 5px;
             font-weight: bold;
         }
-        input[type="text"], input[type="number"], input[type="file"] {
+        input[type="text"], input[type="number"], input[type="file"], select {
             width: 100%;
             padding: 8px;
             box-sizing: border-box;
             border: 1px solid #ccc;
             border-radius: 4px;
+            background: #fff;
         }
         button {
             background-color: #3498db;
@@ -92,16 +100,40 @@
 </head>
 <body>
 
-    <h1>スイスドロー作成 𠮷田卓球場用</h1>
+    <h1>スイスドロー作成 吉田卓球場用</h1>
+
+    <!-- 保存済み大会の選択・再開カード -->
+    <div id="resumeCard" class="resume-card" style="display: none;">
+        <h3 style="color: #27ae60; margin-top: 0;">保存された大会データ</h3>
+        <div class="form-group">
+            <label for="savedTournamentsSelect">再開する大会を選択してください</label>
+            <select id="savedTournamentsSelect"></select>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+            <button class="success-btn" style="flex: 1;" onclick="resumeSelectedTournament()">選択した大会を再開する</button>
+            <button class="danger-btn" onclick="deleteSelectedTournament()">選択した大会を削除</button>
+        </div>
+    </div>
 
     <!-- 大会設定カード -->
     <div class="card">
         <h2>大会基本設定</h2>
         <div class="form-group">
+            <label for="tournamentName">大会名（識別用）</label>
+            <input type="text" id="tournamentName" placeholder="例: 吉田卓球場 月例大会 (11月)">
+        </div>
+        <div class="form-group">
             <label for="totalRounds">総ラウンド数（試合回数）</label>
             <input type="number" id="totalRounds" min="1" max="10" value="4">
             <div id="roundRecommendation" class="recommended-rounds">
                 推奨ラウンド数: 参加人数に応じて自動計算されます
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="courtCount">使用する卓球台（コート）数</label>
+            <input type="number" id="courtCount" min="1" max="20" value="3">
+            <div style="font-size: 12px; color: #7f8c8d; margin-top: 4px;">
+                ※ 同時に試合を進める卓球台の台数を指定します。
             </div>
         </div>
     </div>
@@ -151,12 +183,63 @@
         </table>
 
         <div style="margin-top: 20px;">
-            <button class="success-btn" onclick="startTournament()">対戦表を作成して大会を開始</button>
+            <button class="success-btn" onclick="startTournament()">新しく対戦表を作成して大会を開始</button>
         </div>
     </div>
 
     <script>
         let players = [];
+
+        window.onload = function() {
+            loadSavedTournaments();
+        };
+
+        function getSavedList() {
+            const listJson = localStorage.getItem('tt_tournaments_list');
+            return listJson ? JSON.parse(listJson) : [];
+        }
+
+        function loadSavedTournaments() {
+            const list = getSavedList();
+            const resumeCard = document.getElementById('resumeCard');
+            const select = document.getElementById('savedTournamentsSelect');
+
+            if (list.length > 0) {
+                select.innerHTML = "";
+                list.forEach((t, index) => {
+                    const opt = document.createElement('option');
+                    opt.value = index;
+                    opt.textContent = `${t.name} (登録人数: ${t.players.length}名 / ラウンド: 第${t.currentRound}/${t.totalRounds})`;
+                    select.appendChild(opt);
+                });
+                resumeCard.style.display = 'block';
+            } else {
+                resumeCard.style.display = 'none';
+            }
+        }
+
+        function resumeSelectedTournament() {
+            const select = document.getElementById('savedTournamentsSelect');
+            const index = select.value;
+            const list = getSavedList();
+
+            if (list[index]) {
+                localStorage.setItem('tt_active_tournament', JSON.stringify(list[index]));
+                window.location.href = 'matchlist.html';
+            }
+        }
+
+        function deleteSelectedTournament() {
+            const select = document.getElementById('savedTournamentsSelect');
+            const index = select.value;
+            let list = getSavedList();
+
+            if (list[index] && confirm(`「${list[index].name}」のデータを削除しますか？`)) {
+                list.splice(index, 1);
+                localStorage.setItem('tt_tournaments_list', JSON.stringify(list));
+                loadSavedTournaments();
+            }
+        }
 
         function addPlayer() {
             const input = document.getElementById('playerName');
@@ -269,9 +352,12 @@
             }
         }
 
-        // 大会開始：データを保存して matchlist.html へ遷移する
         function startTournament() {
+            const tNameInput = document.getElementById('tournamentName').value.trim();
+            const tName = tNameInput !== "" ? tNameInput : `卓球大会 (${new Date().toLocaleDateString()})`;
             const rounds = parseInt(document.getElementById('totalRounds').value, 10);
+            const courts = parseInt(document.getElementById('courtCount').value, 10);
+
             if (players.length < 2) {
                 alert("大会を開始するには2名以上の選手が必要です。");
                 return;
@@ -280,24 +366,31 @@
                 alert("有効なラウンド数を入力してください。");
                 return;
             }
+            if (isNaN(courts) || courts < 1) {
+                alert("有効な卓球台数（コート数）を入力してください。");
+                return;
+            }
 
-            // 大会データをオブジェクトにまとめる
-            const tournamentData = {
+            const newTournament = {
+                id: 't_' + Date.now(),
+                name: tName,
                 totalRounds: rounds,
+                courtCount: courts,
                 currentRound: 1,
-                // 選手ごとの初期データを生成（名前、勝ち点、対戦履歴など）
                 players: players.map((name, index) => ({
                     id: index + 1,
                     name: name,
-                    points: 0,      // 勝ち点 (勝:1, 負:0)
-                    opponents: []   // 対戦済み相手のID履歴（再戦防止用）
+                    points: 0,
+                    gameDiff: 0,
+                    opponents: []
                 }))
             };
 
-            // localStorage に保存
-            localStorage.setItem('tt_tournament', JSON.stringify(tournamentData));
+            let list = getSavedList();
+            list.push(newTournament);
+            localStorage.setItem('tt_tournaments_list', JSON.stringify(list));
+            localStorage.setItem('tt_active_tournament', JSON.stringify(newTournament));
 
-            // 対戦表ページへ遷移
             window.location.href = 'matchlist.html';
         }
     </script>
