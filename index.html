@@ -17,6 +17,21 @@
             color: #2c3e50;
             text-align: center;
         }
+        .top-actions {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 15px;
+        }
+        .history-btn {
+            background-color: #34495e;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 6px;
+            font-weight: bold;
+        }
+        .history-btn:hover {
+            background-color: #2c3e50;
+        }
         .card {
             background: #fff;
             padding: 20px;
@@ -102,9 +117,13 @@
 
     <h1>スイスドロー作成 吉田卓球場用</h1>
 
-    <!-- 保存済み大会の選択・再開カード -->
+    <div class="top-actions">
+        <button class="history-btn" onclick="goPastResults()">🏆 過去の大会結果一覧を見る (<span id="finishedCount">0</span>件)</button>
+    </div>
+
+    <!-- 進行中大会の選択・再開カード -->
     <div id="resumeCard" class="resume-card" style="display: none;">
-        <h3 style="color: #27ae60; margin-top: 0;">保存された大会データ</h3>
+        <h3 style="color: #27ae60; margin-top: 0;">進行中の大会データ</h3>
         <div class="form-group">
             <label for="savedTournamentsSelect">再開する大会を選択してください</label>
             <select id="savedTournamentsSelect"></select>
@@ -201,14 +220,20 @@
 
         function loadSavedTournaments() {
             const list = getSavedList();
+            const ongoingList = list.filter(t => !t.isFinished);
+            const finishedList = list.filter(t => t.isFinished === true);
+
+            // 終了済み大会の件数をボタンに反映
+            document.getElementById('finishedCount').textContent = finishedList.length;
+
             const resumeCard = document.getElementById('resumeCard');
             const select = document.getElementById('savedTournamentsSelect');
 
-            if (list.length > 0) {
+            if (ongoingList.length > 0) {
                 select.innerHTML = "";
-                list.forEach((t, index) => {
+                ongoingList.forEach(t => {
                     const opt = document.createElement('option');
-                    opt.value = index;
+                    opt.value = t.id;
                     opt.textContent = `${t.name} (登録人数: ${t.players.length}名 / ラウンド: 第${t.currentRound}/${t.totalRounds})`;
                     select.appendChild(opt);
                 });
@@ -218,24 +243,30 @@
             }
         }
 
+        function goPastResults() {
+            window.location.href = 'past_result.html';
+        }
+
         function resumeSelectedTournament() {
             const select = document.getElementById('savedTournamentsSelect');
-            const index = select.value;
+            const selectedId = select.value;
             const list = getSavedList();
+            const target = list.find(t => t.id === selectedId);
 
-            if (list[index]) {
-                localStorage.setItem('tt_active_tournament', JSON.stringify(list[index]));
+            if (target) {
+                localStorage.setItem('tt_active_tournament', JSON.stringify(target));
                 window.location.href = 'matchlist.html';
             }
         }
 
         function deleteSelectedTournament() {
             const select = document.getElementById('savedTournamentsSelect');
-            const index = select.value;
+            const selectedId = select.value;
             let list = getSavedList();
+            const target = list.find(t => t.id === selectedId);
 
-            if (list[index] && confirm(`「${list[index].name}」のデータを削除しますか？`)) {
-                list.splice(index, 1);
+            if (target && confirm(`「${target.name}」のデータを削除しますか？`)) {
+                list = list.filter(t => t.id !== selectedId);
                 localStorage.setItem('tt_tournaments_list', JSON.stringify(list));
                 loadSavedTournaments();
             }
@@ -377,11 +408,13 @@
                 totalRounds: rounds,
                 courtCount: courts,
                 currentRound: 1,
+                isFinished: false,
                 players: players.map((name, index) => ({
                     id: index + 1,
                     name: name,
                     points: 0,
                     gameDiff: 0,
+                    matchesPlayed: 0,
                     opponents: []
                 }))
             };

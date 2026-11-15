@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>過去の大会結果一覧 - 吉田卓球場用</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 950px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f7f9fa;
+            color: #333;
+        }
+        h1, h2 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .nav-bar {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .tournament-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            border: 1px solid #e1e8ed;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            background: #fdfdfd;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .tournament-meta {
+            flex: 1;
+            min-width: 240px;
+        }
+        .tournament-title {
+            font-weight: bold;
+            font-size: 16px;
+            color: #2c3e50;
+            margin-bottom: 4px;
+        }
+        .tournament-sub {
+            font-size: 13px;
+            color: #7f8c8d;
+        }
+        .btn-group {
+            display: flex;
+            gap: 8px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        .secondary-btn {
+            background-color: #95a5a6;
+        }
+        .secondary-btn:hover {
+            background-color: #7f8c8d;
+        }
+        .danger-btn {
+            background-color: #e74c3c;
+        }
+        .danger-btn:hover {
+            background-color: #c0392b;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: center;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        .podium-1 { background-color: #fff9db !important; font-weight: bold; }
+        .podium-2 { background-color: #f1f3f5 !important; }
+        .podium-3 { background-color: #fff4e6 !important; }
+    </style>
+</head>
+<body>
+
+    <div class="nav-bar">
+        <button class="secondary-btn" onclick="goTop()">← トップ（選手登録）に戻る</button>
+    </div>
+
+    <h1>過去の大会結果一覧</h1>
+
+    <!-- 終了済み大会の一覧カード -->
+    <div class="card">
+        <h2>完了した大会アーカイブ</h2>
+        <div id="pastListContainer">
+            <!-- JavaScriptで動的生成 -->
+        </div>
+    </div>
+
+    <!-- 選択した大会の成績詳細カード -->
+    <div class="card" id="detailCard" style="display: none;">
+        <h2 id="detailTitle">大会結果詳細</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>順位</th>
+                    <th>選手名</th>
+                    <th>勝ち点 (勝数)</th>
+                    <th>試合数</th>
+                    <th>勝率</th>
+                    <th>得失ゲーム差</th>
+                </tr>
+            </thead>
+            <tbody id="detailTableBody"></tbody>
+        </table>
+    </div>
+
+    <script>
+        window.onload = function() {
+            renderPastList();
+        };
+
+        function getSavedList() {
+            const listJson = localStorage.getItem('tt_tournaments_list');
+            return listJson ? JSON.parse(listJson) : [];
+        }
+
+        function renderPastList() {
+            const list = getSavedList();
+            // isFinished が true の大会だけを抽出（新しい順に表示）
+            const finishedTournaments = list.filter(t => t.isFinished === true).reverse();
+            const container = document.getElementById('pastListContainer');
+
+            if (finishedTournaments.length === 0) {
+                container.innerHTML = `<p style="text-align: center; color: #888; padding: 20px 0;">終了した大会の結果はまだ保存されていません。</p>`;
+                document.getElementById('detailCard').style.display = 'none';
+                return;
+            }
+
+            let html = "";
+            finishedTournaments.forEach(t => {
+                // 優勝者を算出
+                let sorted = [...t.players].sort((a, b) => {
+                    if (b.points !== a.points) return b.points - a.points;
+                    return b.gameDiff - a.gameDiff;
+                });
+                const champion = sorted.length > 0 ? sorted[0].name : "-";
+
+                html += `
+                    <div class="tournament-item">
+                        <div class="tournament-meta">
+                            <div class="tournament-title">${escapeHtml(t.name)}</div>
+                            <div class="tournament-sub">
+                                参加人数: ${t.players.length}名 ／ 全 ${t.totalRounds} ラウンド ／ 👑 優勝: <strong>${escapeHtml(champion)}</strong>
+                            </div>
+                        </div>
+                        <div class="btn-group">
+                            <button onclick="showDetail('${t.id}')">結果を見る</button>
+                            <button class="danger-btn" onclick="deletePastTournament('${t.id}')">削除</button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function showDetail(tournamentId) {
+            const list = getSavedList();
+            const target = list.find(t => t.id === tournamentId);
+            if (!target) return;
+
+            document.getElementById('detailTitle').textContent = `🏆 ${target.name} - 最終順位表`;
+            const tbody = document.getElementById('detailTableBody');
+            tbody.innerHTML = "";
+
+            let sortedPlayers = [...target.players].sort((a, b) => {
+                if (b.points !== a.points) return b.points - a.points;
+                return b.gameDiff - a.gameDiff;
+            });
+
+            sortedPlayers.forEach((p, index) => {
+                const played = p.matchesPlayed || target.totalRounds || 1;
+                const wins = p.points || 0;
+                const winRate = played > 0 ? (wins / played) * 100 : 0;
+
+                let rowClass = "";
+                let rankText = `第 ${index + 1} 位`;
+                if (index === 0) { rowClass = "podium-1"; rankText = "👑 優勝"; }
+                else if (index === 1) { rowClass = "podium-2"; rankText = "🥈 2位"; }
+                else if (index === 2) { rowClass = "podium-3"; rankText = "🥉 3位"; }
+
+                const tr = document.createElement('tr');
+                tr.className = rowClass;
+                tr.innerHTML = `
+                    <td style="font-weight: bold;">${rankText}</td>
+                    <td style="text-align: left; padding-left: 20px; font-weight: bold;">${escapeHtml(p.name)}</td>
+                    <td>${wins} 勝</td>
+                    <td>${played} 試合</td>
+                    <td>${winRate.toFixed(1)}%</td>
+                    <td>${p.gameDiff > 0 ? '+' + p.gameDiff : p.gameDiff}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            const detailCard = document.getElementById('detailCard');
+            detailCard.style.display = 'block';
+            detailCard.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function deletePastTournament(tournamentId) {
+            let list = getSavedList();
+            const target = list.find(t => t.id === tournamentId);
+            if (!target) return;
+
+            if (confirm(`「${target.name}」の結果データを削除しますか？`)) {
+                list = list.filter(t => t.id !== tournamentId);
+                localStorage.setItem('tt_tournaments_list', JSON.stringify(list));
+                document.getElementById('detailCard').style.display = 'none';
+                renderPastList();
+            }
+        }
+
+        function goTop() {
+            window.location.href = 'index.html';
+        }
+
+        function escapeHtml(str) {
+            return String(str).replace(/[&'`<>""]/g, function(match) {
+                const escape = {
+                    '&': '&amp;',
+                    "'": '&#x27;',
+                    '`': '&#x60;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                };
+                return escape[match];
+            });
+        }
+    </script>
+</body>
+</html>
