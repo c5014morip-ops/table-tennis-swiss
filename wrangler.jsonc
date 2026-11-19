@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "table-tennis-swiss",
+  "main": "worker.js",
+  "compatibility_date": "2026-11-19",
+  "assets": {
+    "directory": "./",
+    "binding": "ASSETS"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "TOURNAMENT_KV",
+      "id": "5e5a8b0adaf24d6383d6d6ff9eed8844"
+    }
+  ]
+}
