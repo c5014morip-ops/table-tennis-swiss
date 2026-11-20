@@ -92,6 +92,9 @@
         th {
             background-color: #f2f2f2;
         }
+        .rank-1 { background-color: #fff9db; }
+        .rank-2 { background-color: #f8f9fa; }
+        .rank-3 { background-color: #fff4e6; }
         .stat-win {
             color: #27ae60;
             font-weight: bold;
@@ -148,11 +151,11 @@
     <!-- 登録済みメンバー一覧カード -->
     <div class="card">
         <h2>登録済みメンバー一覧 (<span id="memberCount" style="color: #e67e22;">0</span>名)</h2>
-        <p style="font-size: 12px; color: #7f8c8d; margin-top: 0;">※ 勝ち数・負け数は、クラウドに保存されている全大会の記録から自動集計されます。</p>
+        <p style="font-size: 12px; color: #7f8c8d; margin-top: 0;">※ 通算勝ち数の多い順（同勝数の場合は勝率順）に表示しています。</p>
         <table>
             <thead>
                 <tr>
-                    <th style="width: 50px; text-align: center;">No.</th>
+                    <th style="width: 60px; text-align: center;">順位</th>
                     <th>メンバー名</th>
                     <th style="width: 180px; text-align: center;">通算戦績（勝敗・勝率）</th>
                     <th style="width: 140px; text-align: center;">操作</th>
@@ -235,7 +238,6 @@
                         statsMap[name] = { wins: 0, losses: 0 };
                     }
                     const wins = p.points || 0;
-                    // 終了済み大会で matchesPlayed が未記録の旧データがある場合は totalRounds をフォールバック
                     const played = (p.matchesPlayed !== undefined)
                         ? p.matchesPlayed
                         : (t.isFinished ? (t.totalRounds || 0) : Math.max(0, (t.currentRound || 1) - 1));
@@ -257,14 +259,37 @@
                 return;
             }
 
-            members.forEach((m, index) => {
+            // 勝ち数の多い順 → 勝率の高い順にソート
+            const sortedMembers = [...members].sort((a, b) => {
+                const statA = statsMap[a.name] || { wins: 0, losses: 0 };
+                const statB = statsMap[b.name] || { wins: 0, losses: 0 };
+
+                if (statB.wins !== statA.wins) {
+                    return statB.wins - statA.wins;
+                }
+
+                const totalA = statA.wins + statA.losses;
+                const totalB = statB.wins + statB.losses;
+                const rateA = totalA > 0 ? statA.wins / totalA : -1;
+                const rateB = totalB > 0 ? statB.wins / totalB : -1;
+
+                return rateB - rateA;
+            });
+
+            sortedMembers.forEach((m, index) => {
                 const stat = statsMap[m.name] || { wins: 0, losses: 0 };
                 const total = stat.wins + stat.losses;
                 const winRate = total > 0 ? ((stat.wins / total) * 100).toFixed(1) + '%' : '-';
 
+                let rowClass = "";
+                if (index === 0 && stat.wins > 0) rowClass = "rank-1";
+                else if (index === 1 && stat.wins > 0) rowClass = "rank-2";
+                else if (index === 2 && stat.wins > 0) rowClass = "rank-3";
+
                 const tr = document.createElement('tr');
+                if (rowClass) tr.className = rowClass;
                 tr.innerHTML = `
-                    <td style="text-align: center;">${index + 1}</td>
+                    <td style="text-align: center; font-weight: bold;">${index + 1}</td>
                     <td style="font-weight: bold;">${escapeHtml(m.name)}</td>
                     <td style="text-align: center;">
                         <span class="stat-win">${stat.wins}勝</span>
@@ -336,7 +361,6 @@
                 if (item) item.name = trimmed;
                 await saveMembers(latestMembers);
 
-                // 過去の大会データ内の選手名も連動して更新し、戦績が引き継がれるようにする
                 let tournamentUpdated = false;
                 latestTournaments.forEach(t => {
                     if (!t.players) return;
