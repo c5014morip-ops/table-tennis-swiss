@@ -7,7 +7,7 @@
     <style>
         body {
             font-family: system-ui, -apple-system, sans-serif;
-            max-width: 800px;
+            max-width: 850px;
             margin: 0 auto;
             padding: 20px;
             background-color: #f7f9fa;
@@ -92,6 +92,18 @@
         th {
             background-color: #f2f2f2;
         }
+        .stat-win {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        .stat-loss {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+        .stat-rate {
+            color: #555;
+            font-size: 13px;
+        }
         .loading-banner {
             text-align: center;
             padding: 12px;
@@ -111,7 +123,7 @@
 
     <h1>👥 卓球場メンバー名簿の編集</h1>
 
-    <div id="loadingBanner" class="loading-banner">☁️ クラウドからメンバー名簿を読み込み中...</div>
+    <div id="loadingBanner" class="loading-banner">☁️ クラウドからメンバー名簿と通算成績を読み込み中...</div>
 
     <!-- メンバー追加カード -->
     <div class="card">
@@ -136,17 +148,19 @@
     <!-- 登録済みメンバー一覧カード -->
     <div class="card">
         <h2>登録済みメンバー一覧 (<span id="memberCount" style="color: #e67e22;">0</span>名)</h2>
+        <p style="font-size: 12px; color: #7f8c8d; margin-top: 0;">※ 勝ち数・負け数は、クラウドに保存されている全大会の記録から自動集計されます。</p>
         <table>
             <thead>
                 <tr>
-                    <th style="width: 50px;">No.</th>
+                    <th style="width: 50px; text-align: center;">No.</th>
                     <th>メンバー名</th>
+                    <th style="width: 180px; text-align: center;">通算戦績（勝敗・勝率）</th>
                     <th style="width: 140px; text-align: center;">操作</th>
                 </tr>
             </thead>
             <tbody id="memberTableBody">
                 <tr>
-                    <td colspan="3" style="text-align: center; color: #888;">読み込み中...</td>
+                    <td colspan="4" style="text-align: center; color: #888;">読み込み中...</td>
                 </tr>
             </tbody>
         </table>
@@ -154,9 +168,11 @@
 
     <script>
         let members = [];
+        let tournaments = [];
+        let statsMap = {}; // { "選手名": { wins: 0, losses: 0 } }
 
         window.onload = async function() {
-            await loadMembers();
+            await loadAllData();
         };
 
         async function fetchMembers() {
@@ -174,17 +190,61 @@
             if (!res.ok) throw new Error('名簿の保存に失敗しました');
         }
 
-        async function loadMembers() {
+        async function fetchTournaments() {
+            const res = await fetch('/api/data?t=' + Date.now());
+            if (!res.ok) throw new Error('大会データの取得に失敗しました');
+            return await res.json();
+        }
+
+        async function saveTournaments(list) {
+            const res = await fetch('/api/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(list)
+            });
+            if (!res.ok) throw new Error('大会データの保存に失敗しました');
+        }
+
+        async function loadAllData() {
             const banner = document.getElementById('loadingBanner');
             try {
-                members = await fetchMembers();
+                const [fetchedMembers, fetchedTournaments] = await Promise.all([
+                    fetchMembers(),
+                    fetchTournaments()
+                ]);
+                members = fetchedMembers;
+                tournaments = fetchedTournaments;
+                calculateStats();
                 banner.style.display = 'none';
                 renderTable();
             } catch (err) {
-                banner.textContent = '⚠️ 名簿の読み込みに失敗しました: ' + err.message;
+                banner.textContent = '⚠️ データの読み込みに失敗しました: ' + err.message;
                 banner.style.background = '#fadbd8';
                 banner.style.color = '#c0392b';
             }
+        }
+
+        // 全大会データから各選手の通算勝ち数・負け数を集計
+        function calculateStats() {
+            statsMap = {};
+            tournaments.forEach(t => {
+                if (!t.players) return;
+                t.players.forEach(p => {
+                    const name = p.name;
+                    if (!statsMap[name]) {
+                        statsMap[name] = { wins: 0, losses: 0 };
+                    }
+                    const wins = p.points || 0;
+                    // 終了済み大会で matchesPlayed が未記録の旧データがある場合は totalRounds をフォールバック
+                    const played = (p.matchesPlayed !== undefined)
+                        ? p.matchesPlayed
+                        : (t.isFinished ? (t.totalRounds || 0) : Math.max(0, (t.currentRound || 1) - 1));
+                    const losses = Math.max(0, played - wins);
+
+                    statsMap[name].wins += wins;
+                    statsMap[name].losses += losses;
+                });
+            });
         }
 
         function renderTable() {
@@ -193,15 +253,24 @@
             tbody.innerHTML = "";
 
             if (members.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #888;">登録されているメンバーはまだいません</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="4" style="text-align: center; color: #888;">登録されているメンバーはまだいません</td></tr>`;
                 return;
             }
 
             members.forEach((m, index) => {
+                const stat = statsMap[m.name] || { wins: 0, losses: 0 };
+                const total = stat.wins + stat.losses;
+                const winRate = total > 0 ? ((stat.wins / total) * 100).toFixed(1) + '%' : '-';
+
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
-                    <td>${index + 1}</td>
+                    <td style="text-align: center;">${index + 1}</td>
                     <td style="font-weight: bold;">${escapeHtml(m.name)}</td>
+                    <td style="text-align: center;">
+                        <span class="stat-win">${stat.wins}勝</span>
+                        <span class="stat-loss">${stat.losses}敗</span>
+                        <span class="stat-rate">(${winRate})</span>
+                    </td>
                     <td style="text-align: center;">
                         <button class="edit-btn" style="padding: 4px 8px; font-size: 12px; margin-right: 4px;" onclick="editMember('${m.id}')">編集</button>
                         <button class="danger-btn" style="padding: 4px 8px; font-size: 12px;" onclick="deleteMember('${m.id}')">削除</button>
@@ -242,20 +311,49 @@
             const target = members.find(m => m.id === id);
             if (!target) return;
 
-            const newName = prompt("新しいメンバー名を入力してください:", target.name);
+            const oldName = target.name;
+            const newName = prompt("新しいメンバー名を入力してください:", oldName);
             if (newName === null) return;
             const trimmed = newName.trim();
             if (!trimmed) {
                 alert("名前を空にすることはできません。");
                 return;
             }
+            if (trimmed === oldName) return;
 
             try {
-                const latest = await fetchMembers();
-                const item = latest.find(m => m.id === id);
+                const [latestMembers, latestTournaments] = await Promise.all([
+                    fetchMembers(),
+                    fetchTournaments()
+                ]);
+
+                if (latestMembers.some(m => m.id !== id && m.name === trimmed)) {
+                    alert("すでに同じ名前の別メンバーが存在します。");
+                    return;
+                }
+
+                const item = latestMembers.find(m => m.id === id);
                 if (item) item.name = trimmed;
-                await saveMembers(latest);
-                members = latest;
+                await saveMembers(latestMembers);
+
+                // 過去の大会データ内の選手名も連動して更新し、戦績が引き継がれるようにする
+                let tournamentUpdated = false;
+                latestTournaments.forEach(t => {
+                    if (!t.players) return;
+                    t.players.forEach(p => {
+                        if (p.name === oldName) {
+                            p.name = trimmed;
+                            tournamentUpdated = true;
+                        }
+                    });
+                });
+                if (tournamentUpdated) {
+                    await saveTournaments(latestTournaments);
+                }
+
+                members = latestMembers;
+                tournaments = latestTournaments;
+                calculateStats();
                 renderTable();
             } catch (err) {
                 alert("更新に失敗しました: " + err.message);
