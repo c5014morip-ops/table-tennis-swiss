@@ -100,6 +100,15 @@
         .podium-1 { background-color: #fff9db !important; font-weight: bold; }
         .podium-2 { background-color: #f1f3f5 !important; }
         .podium-3 { background-color: #fff4e6 !important; }
+        .loading-banner {
+            text-align: center;
+            padding: 12px;
+            background: #eaf2f8;
+            color: #2980b9;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -110,9 +119,11 @@
 
     <h1>過去の大会結果一覧</h1>
 
+    <div id="loadingBanner" class="loading-banner">☁️ クラウドから過去の大会データを読み込み中...</div>
+
     <!-- 終了済み大会の一覧カード -->
     <div class="card">
-        <h2>完了した大会アーカイブ</h2>
+        <h2>完了した大会アーカイブ（チーム共有）</h2>
         <div id="pastListContainer">
             <!-- JavaScriptで動的生成 -->
         </div>
@@ -137,58 +148,77 @@
     </div>
 
     <script>
-        window.onload = function() {
-            renderPastList();
+        let cachedList = [];
+
+        window.onload = async function() {
+            await renderPastList();
         };
 
-        function getSavedList() {
-            const listJson = localStorage.getItem('tt_tournaments_list');
-            return listJson ? JSON.parse(listJson) : [];
+        async function fetchCloudList() {
+            const res = await fetch('/api/data?t=' + Date.now());
+            if (!res.ok) throw new Error('データの取得に失敗しました');
+            return await res.json();
         }
 
-        function renderPastList() {
-            const list = getSavedList();
-            // isFinished が true の大会だけを抽出（新しい順に表示）
-            const finishedTournaments = list.filter(t => t.isFinished === true).reverse();
+        async function saveCloudList(list) {
+            const res = await fetch('/api/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(list)
+            });
+            if (!res.ok) throw new Error('データの保存に失敗しました');
+        }
+
+        async function renderPastList() {
+            const banner = document.getElementById('loadingBanner');
             const container = document.getElementById('pastListContainer');
 
-            if (finishedTournaments.length === 0) {
-                container.innerHTML = `<p style="text-align: center; color: #888; padding: 20px 0;">終了した大会の結果はまだ保存されていません。</p>`;
-                document.getElementById('detailCard').style.display = 'none';
-                return;
-            }
+            try {
+                cachedList = await fetchCloudList();
+                banner.style.display = 'none';
 
-            let html = "";
-            finishedTournaments.forEach(t => {
-                // 優勝者を算出
-                let sorted = [...t.players].sort((a, b) => {
-                    if (b.points !== a.points) return b.points - a.points;
-                    return b.gameDiff - a.gameDiff;
-                });
-                const champion = sorted.length > 0 ? sorted[0].name : "-";
+                const finishedTournaments = cachedList.filter(t => t.isFinished === true).reverse();
 
-                html += `
-                    <div class="tournament-item">
-                        <div class="tournament-meta">
-                            <div class="tournament-title">${escapeHtml(t.name)}</div>
-                            <div class="tournament-sub">
-                                参加人数: ${t.players.length}名 ／ 全 ${t.totalRounds} ラウンド ／ 👑 優勝: <strong>${escapeHtml(champion)}</strong>
+                if (finishedTournaments.length === 0) {
+                    container.innerHTML = `<p style="text-align: center; color: #888; padding: 20px 0;">終了した大会の結果はまだ保存されていません。</p>`;
+                    document.getElementById('detailCard').style.display = 'none';
+                    return;
+                }
+
+                let html = "";
+                finishedTournaments.forEach(t => {
+                    let sorted = [...t.players].sort((a, b) => {
+                        if (b.points !== a.points) return b.points - a.points;
+                        return b.gameDiff - a.gameDiff;
+                    });
+                    const champion = sorted.length > 0 ? sorted[0].name : "-";
+
+                    html += `
+                        <div class="tournament-item">
+                            <div class="tournament-meta">
+                                <div class="tournament-title">${escapeHtml(t.name)}</div>
+                                <div class="tournament-sub">
+                                    参加人数: ${t.players.length}名 ／ 全 ${t.totalRounds} ラウンド ／ 👑 優勝: <strong>${escapeHtml(champion)}</strong>
+                                </div>
+                            </div>
+                            <div class="btn-group">
+                                <button onclick="showDetail('${t.id}')">結果を見る</button>
+                                <button class="danger-btn" onclick="deletePastTournament('${t.id}')">削除</button>
                             </div>
                         </div>
-                        <div class="btn-group">
-                            <button onclick="showDetail('${t.id}')">結果を見る</button>
-                            <button class="danger-btn" onclick="deletePastTournament('${t.id}')">削除</button>
-                        </div>
-                    </div>
-                `;
-            });
+                    `;
+                });
 
-            container.innerHTML = html;
+                container.innerHTML = html;
+            } catch (err) {
+                banner.textContent = '⚠️ データの読み込みに失敗しました: ' + err.message;
+                banner.style.background = '#fadbd8';
+                banner.style.color = '#c0392b';
+            }
         }
 
         function showDetail(tournamentId) {
-            const list = getSavedList();
-            const target = list.find(t => t.id === tournamentId);
+            const target = cachedList.find(t => t.id === tournamentId);
             if (!target) return;
 
             document.getElementById('detailTitle').textContent = `🏆 ${target.name} - 最終順位表`;
@@ -229,16 +259,20 @@
             detailCard.scrollIntoView({ behavior: 'smooth' });
         }
 
-        function deletePastTournament(tournamentId) {
-            let list = getSavedList();
-            const target = list.find(t => t.id === tournamentId);
+        async function deletePastTournament(tournamentId) {
+            const target = cachedList.find(t => t.id === tournamentId);
             if (!target) return;
 
-            if (confirm(`「${target.name}」の結果データを削除しますか？`)) {
-                list = list.filter(t => t.id !== tournamentId);
-                localStorage.setItem('tt_tournaments_list', JSON.stringify(list));
-                document.getElementById('detailCard').style.display = 'none';
-                renderPastList();
+            if (confirm(`「${target.name}」の結果データをクラウドから削除しますか？\n（チーム全員の画面から削除されます）`)) {
+                try {
+                    const latestList = await fetchCloudList();
+                    const updatedList = latestList.filter(t => t.id !== tournamentId);
+                    await saveCloudList(updatedList);
+                    document.getElementById('detailCard').style.display = 'none';
+                    await renderPastList();
+                } catch (err) {
+                    alert("削除に失敗しました: " + err.message);
+                }
             }
         }
 

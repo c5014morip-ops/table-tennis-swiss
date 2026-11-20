@@ -64,6 +64,15 @@
         .podium-1 { background-color: #fff9db !important; font-weight: bold; }
         .podium-2 { background-color: #f1f3f5 !important; }
         .podium-3 { background-color: #fff4e6 !important; }
+        .loading-banner {
+            text-align: center;
+            padding: 12px;
+            background: #eaf2f8;
+            color: #2980b9;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -73,9 +82,11 @@
         <span id="tournamentTitle" style="font-weight: bold; font-size: 18px; align-self: center;">大会結果</span>
     </div>
 
+    <div id="loadingBanner" class="loading-banner">☁️ クラウドから最終結果を読み込み中...</div>
+
     <h1>🏆 大会結果・勝率ランキング 🏆</h1>
 
-    <div class="card">
+    <div class="card" id="resultCard" style="display: none;">
         <h2 id="subTitle">最終順位・成績一覧</h2>
         <table>
             <thead>
@@ -95,39 +106,60 @@
 
         <div style="margin-top: 30px; display: flex; gap: 15px;">
             <button class="secondary-btn" style="flex: 1;" onclick="goTop()">トップ画面に戻る</button>
+            <button style="flex: 1;" onclick="window.location.href='past_result.html'">過去の大会一覧を見る</button>
         </div>
     </div>
 
     <script>
-        const activeJson = localStorage.getItem('tt_active_tournament') || localStorage.getItem('tt_tournament');
-        if (!activeJson) {
-            alert("大会データが見つかりません。トップ画面に戻ります。");
-            window.location.href = 'index.html';
-        }
+        const urlParams = new URLSearchParams(window.location.search);
+        const tournamentId = urlParams.get('id');
+        let tournament = null;
 
-        const tournament = JSON.parse(activeJson);
+        window.onload = async function() {
+            const banner = document.getElementById('loadingBanner');
+            try {
+                const res = await fetch('/api/data?t=' + Date.now());
+                if (!res.ok) throw new Error('データの取得に失敗しました');
+                const list = await res.json();
 
-        window.onload = function() {
-            if (tournament.name) {
-                document.getElementById('tournamentTitle').textContent = tournament.name;
+                if (tournamentId) {
+                    tournament = list.find(t => t.id === tournamentId);
+                } else {
+                    const finished = list.filter(t => t.isFinished);
+                    tournament = finished.length > 0 ? finished[finished.length - 1] : list[list.length - 1];
+                }
+
+                if (!tournament) {
+                    alert("大会データが見つかりません。トップ画面に戻ります。");
+                    window.location.href = 'index.html';
+                    return;
+                }
+
+                banner.style.display = 'none';
+                document.getElementById('resultCard').style.display = 'block';
+                if (tournament.name) {
+                    document.getElementById('tournamentTitle').textContent = tournament.name;
+                }
+                renderResultTable();
+            } catch (err) {
+                banner.textContent = '⚠️ データの読み込みに失敗しました: ' + err.message;
+                banner.style.background = '#fadbd8';
+                banner.style.color = '#c0392b';
             }
-            renderResultTable();
         };
 
         function renderResultTable() {
             const tbody = document.getElementById('resultTableBody');
             tbody.innerHTML = "";
 
-            // ランキングのソート順（勝ち点順 → 得失ゲーム差順）
             let sortedPlayers = [...tournament.players].sort((a, b) => {
                 if (b.points !== a.points) return b.points - a.points;
                 return b.gameDiff - a.gameDiff;
             });
 
             sortedPlayers.forEach((p, index) => {
-                const played = p.matchesPlayed || tournament.currentRound || 1;
+                const played = p.matchesPlayed || tournament.totalRounds || 1;
                 const wins = p.points || 0;
-                // 勝率計算 (勝数 / 消化試合数)
                 const winRate = played > 0 ? (wins / played) * 100 : 0;
 
                 let rowClass = "";
@@ -155,7 +187,7 @@
         }
 
         function escapeHtml(str) {
-            return str.replace(/[&'`<>""]/g, function(match) {
+            return String(str).replace(/[&'`<>""]/g, function(match) {
                 const escape = {
                     '&': '&amp;',
                     "'": '&#x27;',

@@ -126,6 +126,10 @@
         button:hover {
             background-color: #2980b9;
         }
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
         .secondary-btn {
             background-color: #95a5a6;
         }
@@ -144,20 +148,35 @@
         .nav-bar {
             display: flex;
             justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
             margin-bottom: 20px;
+        }
+        .loading-banner {
+            text-align: center;
+            padding: 12px;
+            background: #eaf2f8;
+            color: #2980b9;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
 
     <div class="nav-bar">
-        <button class="secondary-btn" onclick="goBack()">← 選手登録（トップ）に戻る</button>
-        <span id="roundTitle" style="font-weight: bold; font-size: 18px; align-self: center;">対戦カード</span>
+        <button class="secondary-btn" onclick="goBack()">← トップに戻る</button>
+        <span id="roundTitle" style="font-weight: bold; font-size: 18px;">対戦カード</span>
+        <button onclick="refreshFromCloud()">🔄 最新の状態に更新</button>
     </div>
+
+    <div id="loadingBanner" class="loading-banner">☁️ クラウドから対戦データを読み込み中...</div>
 
     <h1 id="pageHeading">進行順 試合結果と審判の入力</h1>
 
-    <div class="card" id="matchesCard">
+    <div class="card" id="matchesCard" style="display: none;">
         <div id="matchesContainer">
             <!-- JavaScriptで動的に生成 -->
         </div>
@@ -168,48 +187,115 @@
     </div>
 
     <script>
-        const activeJson = localStorage.getItem('tt_active_tournament') || localStorage.getItem('tt_tournament');
-        if (!activeJson) {
-            alert("大会データが見つかりません。選手登録画面に戻ります。");
-            window.location.href = 'index.html';
-        }
-
-        let tournament = JSON.parse(activeJson);
-        if (!tournament.courtCount) tournament.courtCount = 3;
-
+        const urlParams = new URLSearchParams(window.location.search);
+        let tournamentId = urlParams.get('id');
+        let tournament = null;
         let currentMatches = [];
 
-        window.onload = function() {
-            tournament.players.forEach(p => {
-                if (p.points === undefined) p.points = 0;
-                if (p.gameDiff === undefined) p.gameDiff = 0;
-                if (p.matchesPlayed === undefined) p.matchesPlayed = 0;
-                if (!p.opponents) p.opponents = [];
-            });
-
-            if (tournament.currentRound === 1 && !tournament.round1Generated) {
-                generateFirstRoundPairings();
-                tournament.round1Generated = true;
-                saveTournamentData();
-            } else {
-                generateSwissPairings();
-            }
+        window.onload = async function() {
+            await loadTournamentFromCloud();
         };
 
-        function saveTournamentData() {
-            localStorage.setItem('tt_active_tournament', JSON.stringify(tournament));
+        async function fetchCloudList() {
+            const res = await fetch('/api/data?t=' + Date.now());
+            if (!res.ok) throw new Error('データの取得に失敗しました');
+            return await res.json();
+        }
 
-            const listJson = localStorage.getItem('tt_tournaments_list');
-            if (listJson) {
-                let list = JSON.parse(listJson);
-                const index = list.findIndex(t => t.id === tournament.id);
-                if (index !== -1) {
-                    list[index] = tournament;
-                } else {
-                    list.push(tournament);
+        async function saveCloudList(list) {
+            const res = await fetch('/api/data', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(list)
+            });
+            if (!res.ok) throw new Error('データの保存に失敗しました');
+        }
+
+        async function loadTournamentFromCloud() {
+            const banner = document.getElementById('loadingBanner');
+            banner.style.display = 'block';
+            banner.textContent = '☁️ クラウドから対戦データを読み込み中...';
+
+            try {
+                const list = await fetchCloudList();
+                if (!list || list.length === 0) {
+                    alert("大会データが見つかりません。トップ画面に戻ります。");
+                    window.location.href = 'index.html';
+                    return;
                 }
-                localStorage.setItem('tt_tournaments_list', JSON.stringify(list));
+
+                // URLにidがあればそれを探し、なければ進行中の最新大会を使う
+                if (tournamentId) {
+                    tournament = list.find(t => t.id === tournamentId);
+                } else {
+                    const ongoing = list.filter(t => !t.isFinished);
+                    tournament = ongoing.length > 0 ? ongoing[ongoing.length - 1] : list[list.length - 1];
+                    if (tournament) {
+                        tournamentId = tournament.id;
+                        window.history.replaceState(null, '', `?id=${encodeURIComponent(tournamentId)}`);
+                    }
+                }
+
+                if (!tournament) {
+                    alert("指定された大会が見つかりません。トップ画面に戻ります。");
+                    window.location.href = 'index.html';
+                    return;
+                }
+
+                // すでに終了している大会なら結果ページへ誘導
+                if (tournament.isFinished) {
+                    window.location.href = `result.html?id=${encodeURIComponent(tournament.id)}`;
+                    return;
+                }
+
+                if (!tournament.courtCount) tournament.courtCount = 3;
+                tournament.players.forEach(p => {
+                    if (p.points === undefined) p.points = 0;
+                    if (p.gameDiff === undefined) p.gameDiff = 0;
+                    if (p.matchesPlayed === undefined) p.matchesPlayed = 0;
+                    if (!p.opponents) p.opponents = [];
+                });
+
+                document.getElementById('pageHeading').textContent = `${tournament.name} - 試合結果と審判`;
+
+                // すでにクラウド上に現在ラウンドの対戦カードが保存されていればそれを復元
+                if (tournament.currentMatches && tournament.currentMatches.length > 0) {
+                    currentMatches = tournament.currentMatches;
+                    renderMatches();
+                } else if (tournament.currentRound === 1 && !tournament.round1Generated) {
+                    generateFirstRoundPairings();
+                    tournament.round1Generated = true;
+                    tournament.currentMatches = currentMatches;
+                    await saveTournamentData();
+                } else {
+                    generateSwissPairings();
+                    tournament.currentMatches = currentMatches;
+                    await saveTournamentData();
+                }
+
+                banner.style.display = 'none';
+                document.getElementById('matchesCard').style.display = 'block';
+            } catch (err) {
+                banner.textContent = '⚠️ データの読み込みに失敗しました: ' + err.message;
+                banner.style.background = '#fadbd8';
+                banner.style.color = '#c0392b';
             }
+        }
+
+        async function refreshFromCloud() {
+            await loadTournamentFromCloud();
+        }
+
+        async function saveTournamentData() {
+            tournament.currentMatches = currentMatches;
+            const latestList = await fetchCloudList();
+            const index = latestList.findIndex(t => t.id === tournament.id);
+            if (index !== -1) {
+                latestList[index] = tournament;
+            } else {
+                latestList.push(tournament);
+            }
+            await saveCloudList(latestList);
         }
 
         function generateFirstRoundPairings() {
@@ -338,7 +424,7 @@
                 m.wave = 0;
             });
 
-            for (let w = 1; w < waveCounter; w++) {
+            for (let w = 1; w <= waveCounter; w++) {
                 let waveMatches = realMatches.filter(m => m.wave === w);
                 if (waveMatches.length === 0) continue;
 
@@ -454,7 +540,7 @@
             container.innerHTML = html;
         }
 
-        function updateScore(index) {
+        async function updateScore(index) {
             const s1Val = document.getElementById(`score1_${index}`).value;
             const s2Val = document.getElementById(`score2_${index}`).value;
 
@@ -486,14 +572,26 @@
                 badge1.style.display = 'none';
                 badge2.style.display = 'none';
             }
+
+            // 途中経過もクラウドへ自動保存（別端末から見ても入力途中のスコアが反映される）
+            try {
+                await saveTournamentData();
+            } catch (e) {
+                console.error("スコア途中保存エラー:", e);
+            }
         }
 
-        function updateReferee(index) {
+        async function updateReferee(index) {
             const refSelect = document.getElementById(`ref_${index}`);
             currentMatches[index].referee = refSelect.value ? parseInt(refSelect.value, 10) : null;
+            try {
+                await saveTournamentData();
+            } catch (e) {
+                console.error("審判変更保存エラー:", e);
+            }
         }
 
-        function saveAndNextRound() {
+        async function saveAndNextRound() {
             for (let i = 0; i < currentMatches.length; i++) {
                 const m = currentMatches[i];
                 if (m.result === null) {
@@ -506,55 +604,64 @@
                 }
             }
 
-            currentMatches.forEach(m => {
-                let p1 = tournament.players.find(p => p.id === m.player1.id);
+            const btn = document.getElementById('nextRoundBtn');
+            btn.disabled = true;
+            btn.textContent = "☁️ クラウドに結果を保存中...";
 
-                if (m.result === 'bye') {
-                    p1.points += 1;
-                    p1.gameDiff += 3;
-                    p1.matchesPlayed = (p1.matchesPlayed || 0) + 1; // BYEも1試合消化とする場合
-                } else {
-                    let p2 = tournament.players.find(p => p.id === m.player2.id);
+            try {
+                currentMatches.forEach(m => {
+                    let p1 = tournament.players.find(p => p.id === m.player1.id);
 
-                    p1.opponents.push(p2.id);
-                    p2.opponents.push(p1.id);
-
-                    p1.gameDiff += (m.score1 - m.score2);
-                    p2.gameDiff += (m.score2 - m.score1);
-
-                    p1.matchesPlayed = (p1.matchesPlayed || 0) + 1;
-                    p2.matchesPlayed = (p2.matchesPlayed || 0) + 1;
-
-                    if (m.result === 'p1_win') {
+                    if (m.result === 'bye') {
                         p1.points += 1;
-                    } else if (m.result === 'p2_win') {
-                        p2.points += 1;
-                    }
-                }
-            });
+                        p1.gameDiff += 3;
+                        p1.matchesPlayed = (p1.matchesPlayed || 0) + 1;
+                    } else {
+                        let p2 = tournament.players.find(p => p.id === m.player2.id);
 
-            if (tournament.currentRound >= tournament.totalRounds) {
-                // 最終ラウンド終了時は結果発表ページへ遷移
-                tournament.isFinished = true;
-                saveTournamentData();
-                alert(`全 ${tournament.totalRounds} ラウンドが終了しました！結果発表ページに移動します。`);
-                window.location.href = 'result.html';
-            } else {
-                tournament.currentRound += 1;
-                saveTournamentData();
-                alert(`第 ${tournament.currentRound - 1} ラウンドの結果を保存しました。第 ${tournament.currentRound} ラウンドの対戦カードを生成します。`);
-                generateSwissPairings();
+                        p1.opponents.push(p2.id);
+                        p2.opponents.push(p1.id);
+
+                        p1.gameDiff += (m.score1 - m.score2);
+                        p2.gameDiff += (m.score2 - m.score1);
+
+                        p1.matchesPlayed = (p1.matchesPlayed || 0) + 1;
+                        p2.matchesPlayed = (p2.matchesPlayed || 0) + 1;
+
+                        if (m.result === 'p1_win') {
+                            p1.points += 1;
+                        } else if (m.result === 'p2_win') {
+                            p2.points += 1;
+                        }
+                    }
+                });
+
+                if (tournament.currentRound >= tournament.totalRounds) {
+                    tournament.isFinished = true;
+                    tournament.currentMatches = [];
+                    await saveTournamentData();
+                    alert(`全 ${tournament.totalRounds} ラウンドが終了しました！結果発表ページに移動します。`);
+                    window.location.href = `result.html?id=${encodeURIComponent(tournament.id)}`;
+                } else {
+                    tournament.currentRound += 1;
+                    generateSwissPairings();
+                    await saveTournamentData();
+                    alert(`第 ${tournament.currentRound - 1} ラウンドの結果をクラウドに保存しました。第 ${tournament.currentRound} ラウンドの対戦カードを表示します。`);
+                }
+            } catch (err) {
+                alert("保存に失敗しました: " + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "結果を確定して次のラウンドへ";
             }
         }
 
         function goBack() {
-            if (confirm("選手登録画面に戻りますか？")) {
-                window.location.href = 'index.html';
-            }
+            window.location.href = 'index.html';
         }
 
         function escapeHtml(str) {
-            return str.replace(/[&'`<>""]/g, function(match) {
+            return String(str).replace(/[&'`<>""]/g, function(match) {
                 const escape = {
                     '&': '&amp;',
                     "'": '&#x27;',
