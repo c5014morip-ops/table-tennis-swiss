@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>卓球場メンバー名簿管理 - 吉田卓球場用</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f7f9fa;
+            color: #333;
+        }
+        h1, h2 {
+            color: #2c3e50;
+            text-align: center;
+        }
+        .nav-bar {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+        .card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: #fff;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+        .secondary-btn {
+            background-color: #95a5a6;
+        }
+        .secondary-btn:hover {
+            background-color: #7f8c8d;
+        }
+        .danger-btn {
+            background-color: #e74c3c;
+        }
+        .danger-btn:hover {
+            background-color: #c0392b;
+        }
+        .edit-btn {
+            background-color: #f39c12;
+        }
+        .edit-btn:hover {
+            background-color: #d68910;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .loading-banner {
+            text-align: center;
+            padding: 12px;
+            background: #eaf2f8;
+            color: #2980b9;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="nav-bar">
+        <button class="secondary-btn" onclick="goTop()">← トップ（大会作成）に戻る</button>
+    </div>
+
+    <h1>👥 卓球場メンバー名簿の編集</h1>
+
+    <div id="loadingBanner" class="loading-banner">☁️ クラウドからメンバー名簿を読み込み中...</div>
+
+    <!-- メンバー追加カード -->
+    <div class="card">
+        <h2>新しいメンバーを登録</h2>
+        <div class="form-group">
+            <label for="newMemberName">メンバー名（1人ずつ追加）</label>
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="newMemberName" placeholder="例: 吉田 太郎" onkeypress="if(event.key==='Enter') addMember()">
+                <button onclick="addMember()">登録</button>
+            </div>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+
+        <div class="form-group">
+            <label for="csvMemberInput">CSVファイルから名簿へ一括登録</label>
+            <p style="font-size: 12px; color: #666; margin-top: 0;">※ 1列目に名前が並んでいるCSVを読み込むと、重複を除いて名簿に追加されます。</p>
+            <input type="file" id="csvMemberInput" accept=".csv">
+        </div>
+    </div>
+
+    <!-- 登録済みメンバー一覧カード -->
+    <div class="card">
+        <h2>登録済みメンバー一覧 (<span id="memberCount" style="color: #e67e22;">0</span>名)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 50px;">No.</th>
+                    <th>メンバー名</th>
+                    <th style="width: 140px; text-align: center;">操作</th>
+                </tr>
+            </thead>
+            <tbody id="memberTableBody">
+                <tr>
+                    <td colspan="3" style="text-align: center; color: #888;">読み込み中...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        let members = [];
+
+        window.onload = async function() {
+            await loadMembers();
+        };
+
+        async function fetchMembers() {
+            const res = await fetch('/api/members?t=' + Date.now());
+            if (!res.ok) throw new Error('名簿の取得に失敗しました');
+            return await res.json();
+        }
+
+        async function saveMembers(list) {
+            const res = await fetch('/api/members', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(list)
+            });
+            if (!res.ok) throw new Error('名簿の保存に失敗しました');
+        }
+
+        async function loadMembers() {
+            const banner = document.getElementById('loadingBanner');
+            try {
+                members = await fetchMembers();
+                banner.style.display = 'none';
+                renderTable();
+            } catch (err) {
+                banner.textContent = '⚠️ 名簿の読み込みに失敗しました: ' + err.message;
+                banner.style.background = '#fadbd8';
+                banner.style.color = '#c0392b';
+            }
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('memberTableBody');
+            document.getElementById('memberCount').textContent = members.length;
+            tbody.innerHTML = "";
+
+            if (members.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #888;">登録されているメンバーはまだいません</td></tr>`;
+                return;
+            }
+
+            members.forEach((m, index) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td style="font-weight: bold;">${escapeHtml(m.name)}</td>
+                    <td style="text-align: center;">
+                        <button class="edit-btn" style="padding: 4px 8px; font-size: 12px; margin-right: 4px;" onclick="editMember('${m.id}')">編集</button>
+                        <button class="danger-btn" style="padding: 4px 8px; font-size: 12px;" onclick="deleteMember('${m.id}')">削除</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function addMember() {
+            const input = document.getElementById('newMemberName');
+            const name = input.value.trim();
+            if (!name) {
+                alert("メンバー名を入力してください。");
+                return;
+            }
+
+            try {
+                const latest = await fetchMembers();
+                if (latest.some(m => m.name === name)) {
+                    alert("すでに同じ名前のメンバーが登録されています。");
+                    return;
+                }
+                latest.push({
+                    id: 'm_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+                    name: name
+                });
+                await saveMembers(latest);
+                members = latest;
+                input.value = "";
+                renderTable();
+            } catch (err) {
+                alert("登録に失敗しました: " + err.message);
+            }
+        }
+
+        async function editMember(id) {
+            const target = members.find(m => m.id === id);
+            if (!target) return;
+
+            const newName = prompt("新しいメンバー名を入力してください:", target.name);
+            if (newName === null) return;
+            const trimmed = newName.trim();
+            if (!trimmed) {
+                alert("名前を空にすることはできません。");
+                return;
+            }
+
+            try {
+                const latest = await fetchMembers();
+                const item = latest.find(m => m.id === id);
+                if (item) item.name = trimmed;
+                await saveMembers(latest);
+                members = latest;
+                renderTable();
+            } catch (err) {
+                alert("更新に失敗しました: " + err.message);
+            }
+        }
+
+        async function deleteMember(id) {
+            const target = members.find(m => m.id === id);
+            if (!target) return;
+
+            if (!confirm(`「${target.name}」をメンバー名簿から削除しますか？`)) return;
+
+            try {
+                const latest = await fetchMembers();
+                const updated = latest.filter(m => m.id !== id);
+                await saveMembers(updated);
+                members = updated;
+                renderTable();
+            } catch (err) {
+                alert("削除に失敗しました: " + err.message);
+            }
+        }
+
+        document.getElementById('csvMemberInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function(ev) {
+                await importCsvToMembers(ev.target.result);
+                e.target.value = '';
+            };
+            reader.readAsText(file, 'UTF-8');
+        });
+
+        async function importCsvToMembers(text) {
+            const lines = text.split(/\r\n|\n/);
+            try {
+                const latest = await fetchMembers();
+                let addedCount = 0;
+
+                lines.forEach((line, idx) => {
+                    const cols = line.split(',');
+                    if (cols.length > 0) {
+                        const name = cols[0].trim().replace(/^["']|["']$/g, '');
+                        if (name !== "" && !latest.some(m => m.name === name)) {
+                            latest.push({
+                                id: 'm_' + Date.now() + '_' + idx + '_' + Math.floor(Math.random() * 1000),
+                                name: name
+                            });
+                            addedCount++;
+                        }
+                    }
+                });
+
+                if (addedCount > 0) {
+                    await saveMembers(latest);
+                    members = latest;
+                    renderTable();
+                    alert(`${addedCount}名をメンバー名簿に追加しました！`);
+                } else {
+                    alert("新しく追加できるメンバーが見つかりませんでした（重複または空データ）。");
+                }
+            } catch (err) {
+                alert("CSVインポートに失敗しました: " + err.message);
+            }
+        }
+
+        function goTop() {
+            window.location.href = 'index.html';
+        }
+
+        function escapeHtml(str) {
+            return String(str).replace(/[&'`<>""]/g, function(match) {
+                const escape = {
+                    '&': '&amp;',
+                    "'": '&#x27;',
+                    '`': '&#x60;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                };
+                return escape[match];
+            });
+        }
+    </script>
+</body>
+</html>

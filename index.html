@@ -19,8 +19,20 @@
         }
         .top-actions {
             display: flex;
-            justify-content: flex-end;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 10px;
             margin-bottom: 15px;
+        }
+        .member-btn {
+            background-color: #2980b9;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 6px;
+            font-weight: bold;
+        }
+        .member-btn:hover {
+            background-color: #1f618d;
         }
         .history-btn {
             background-color: #34495e;
@@ -93,6 +105,40 @@
         .success-btn:hover {
             background-color: #27ae60;
         }
+        .member-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+            gap: 8px;
+            max-height: 260px;
+            overflow-y: auto;
+            padding: 10px;
+            border: 1px solid #e1e8ed;
+            border-radius: 6px;
+            background: #fcfdfd;
+        }
+        .member-checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fff;
+            cursor: pointer;
+            font-weight: normal;
+            margin-bottom: 0;
+            user-select: none;
+        }
+        .member-checkbox-label:hover {
+            background: #eaf2f8;
+            border-color: #3498db;
+        }
+        .member-checkbox-label input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            margin: 0;
+            cursor: pointer;
+        }
         table {
             width: 100%;
             border-collapse: collapse;
@@ -130,9 +176,10 @@
 
     <h1>スイスドロー作成 吉田卓球場用</h1>
 
-    <div id="loadingBanner" class="loading-banner">☁️ クラウドから大会データを読み込み中...</div>
+    <div id="loadingBanner" class="loading-banner">☁️ クラウドから大会データとメンバー名簿を読み込み中...</div>
 
     <div class="top-actions">
+        <button class="member-btn" onclick="goMembers()">👥 メンバー名簿を編集 (<span id="registeredMemberCount">0</span>名)</button>
         <button class="history-btn" onclick="goPastResults()">🏆 過去の大会結果一覧を見る (<span id="finishedCount">0</span>件)</button>
     </div>
 
@@ -174,30 +221,46 @@
 
     <!-- 選手登録カード -->
     <div class="card">
-        <h2>選手登録</h2>
+        <h2>参加選手の選択・追加</h2>
+
+        <!-- 登録済みメンバーから選択 -->
+        <div class="form-group">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+                <label style="margin-bottom: 0;">1. 登録済みメンバーから選択</label>
+                <div style="display: flex; gap: 6px;">
+                    <button type="button" style="padding: 5px 10px; font-size: 12px;" onclick="selectAllClubMembers(true)">全員チェック</button>
+                    <button type="button" class="danger-btn" style="padding: 5px 10px; font-size: 12px;" onclick="selectAllClubMembers(false)">全解除</button>
+                </div>
+            </div>
+            <div id="clubMembersContainer" class="member-grid">
+                <span style="color: #888; font-size: 13px;">メンバー名簿を読み込み中...</span>
+            </div>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
         
         <!-- CSVファイル取り込み -->
         <div class="form-group">
-            <label for="csvFileInput">CSVファイルから一括インポート</label>
+            <label for="csvFileInput">2. CSVファイルから一括インポート</label>
             <p style="font-size: 12px; color: #666; margin-top: 0;">※ 1行目に名前（例: 山田太郎）が並んでいるCSVファイルをアップロードしてください。</p>
             <input type="file" id="csvFileInput" accept=".csv">
         </div>
 
         <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
 
-        <!-- 1人ずつ追加 -->
+        <!-- 1人ずつ追加（ビジター・臨時参加者用） -->
         <div class="form-group">
-            <label for="playerName">選手名を追加</label>
+            <label for="playerName">3. 臨時参加者・ビジターを1人ずつ追加</label>
             <div style="display: flex; gap: 10px;">
-                <input type="text" id="playerName" placeholder="例: 山田 太郎">
+                <input type="text" id="playerName" placeholder="例: 山田 太郎" onkeypress="if(event.key==='Enter') addPlayer()">
                 <button onclick="addPlayer()">追加</button>
             </div>
         </div>
     </div>
 
-    <!-- 登録選手一覧カード -->
+    <!-- 今回の大会参加選手一覧カード -->
     <div class="card">
-        <h2>登録選手一覧 (<span id="playerCount" class="player-count">0</span>名)</h2>
+        <h2>今回の参加選手一覧 (<span id="playerCount" class="player-count">0</span>名)</h2>
         <div style="margin-bottom: 10px;">
             <button class="danger-btn" onclick="clearPlayers()">全選手をクリア</button>
         </div>
@@ -211,7 +274,7 @@
             </thead>
             <tbody id="playerTableBody">
                 <tr>
-                    <td colspan="3" style="text-align: center; color: #888;">選手がまだ登録されていません</td>
+                    <td colspan="3" style="text-align: center; color: #888;">選手がまだ選択されていません</td>
                 </tr>
             </tbody>
         </table>
@@ -223,15 +286,16 @@
 
     <script>
         let players = [];
+        let clubMembers = [];
         let cachedTournaments = [];
 
         window.onload = async function() {
-            await loadSavedTournaments();
+            await initPageData();
         };
 
         async function fetchCloudList() {
             const res = await fetch('/api/data?t=' + Date.now());
-            if (!res.ok) throw new Error('データの取得に失敗しました');
+            if (!res.ok) throw new Error('大会データの取得に失敗しました');
             return await res.json();
         }
 
@@ -244,37 +308,105 @@
             if (!res.ok) throw new Error('データの保存に失敗しました');
         }
 
-        async function loadSavedTournaments() {
+        async function fetchClubMembers() {
+            const res = await fetch('/api/members?t=' + Date.now());
+            if (!res.ok) throw new Error('メンバー名簿の取得に失敗しました');
+            return await res.json();
+        }
+
+        async function initPageData() {
             const banner = document.getElementById('loadingBanner');
             try {
-                cachedTournaments = await fetchCloudList();
+                const [tournaments, members] = await Promise.all([
+                    fetchCloudList(),
+                    fetchClubMembers()
+                ]);
+                cachedTournaments = tournaments;
+                clubMembers = members;
                 banner.style.display = 'none';
 
-                const ongoingList = cachedTournaments.filter(t => !t.isFinished);
-                const finishedList = cachedTournaments.filter(t => t.isFinished === true);
-
-                document.getElementById('finishedCount').textContent = finishedList.length;
-
-                const resumeCard = document.getElementById('resumeCard');
-                const select = document.getElementById('savedTournamentsSelect');
-
-                if (ongoingList.length > 0) {
-                    select.innerHTML = "";
-                    ongoingList.forEach(t => {
-                        const opt = document.createElement('option');
-                        opt.value = t.id;
-                        opt.textContent = `${t.name} (登録人数: ${t.players.length}名 / ラウンド: 第${t.currentRound}/${t.totalRounds})`;
-                        select.appendChild(opt);
-                    });
-                    resumeCard.style.display = 'block';
-                } else {
-                    resumeCard.style.display = 'none';
-                }
+                renderSavedTournaments();
+                renderClubMemberCheckboxes();
             } catch (err) {
                 banner.textContent = '⚠️ クラウドからのデータ読み込みに失敗しました。再読み込みしてください。';
                 banner.style.background = '#fadbd8';
                 banner.style.color = '#c0392b';
             }
+        }
+
+        function renderSavedTournaments() {
+            const ongoingList = cachedTournaments.filter(t => !t.isFinished);
+            const finishedList = cachedTournaments.filter(t => t.isFinished === true);
+
+            document.getElementById('finishedCount').textContent = finishedList.length;
+
+            const resumeCard = document.getElementById('resumeCard');
+            const select = document.getElementById('savedTournamentsSelect');
+
+            if (ongoingList.length > 0) {
+                select.innerHTML = "";
+                ongoingList.forEach(t => {
+                    const opt = document.createElement('option');
+                    opt.value = t.id;
+                    opt.textContent = `${t.name} (登録人数: ${t.players.length}名 / ラウンド: 第${t.currentRound}/${t.totalRounds})`;
+                    select.appendChild(opt);
+                });
+                resumeCard.style.display = 'block';
+            } else {
+                resumeCard.style.display = 'none';
+            }
+        }
+
+        function renderClubMemberCheckboxes() {
+            document.getElementById('registeredMemberCount').textContent = clubMembers.length;
+            const container = document.getElementById('clubMembersContainer');
+
+            if (clubMembers.length === 0) {
+                container.innerHTML = `<span style="color: #888; font-size: 13px;">まだメンバーが登録されていません。上部の「メンバー名簿を編集」から登録できます。</span>`;
+                return;
+            }
+
+            container.innerHTML = "";
+            clubMembers.forEach(m => {
+                const isChecked = players.includes(m.name);
+                const label = document.createElement('label');
+                label.className = 'member-checkbox-label';
+                label.innerHTML = `
+                    <input type="checkbox" value="${escapeHtml(m.name)}" ${isChecked ? 'checked' : ''} onchange="toggleClubMember(this)">
+                    <span>${escapeHtml(m.name)}</span>
+                `;
+                container.appendChild(label);
+            });
+        }
+
+        function toggleClubMember(checkbox) {
+            const name = checkbox.value;
+            if (checkbox.checked) {
+                if (!players.includes(name)) {
+                    players.push(name);
+                }
+            } else {
+                players = players.filter(p => p !== name);
+            }
+            updatePlayerTable();
+        }
+
+        function selectAllClubMembers(selectAll) {
+            const checkboxes = document.querySelectorAll('#clubMembersContainer input[type="checkbox"]');
+            checkboxes.forEach(cb => {
+                cb.checked = selectAll;
+                const name = cb.value;
+                if (selectAll) {
+                    if (!players.includes(name)) players.push(name);
+                } else {
+                    players = players.filter(p => p !== name);
+                }
+            });
+            updatePlayerTable();
+        }
+
+        function goMembers() {
+            window.location.href = 'members.html';
         }
 
         function goPastResults() {
@@ -297,9 +429,9 @@
             if (target && confirm(`「${target.name}」のデータをクラウドから削除しますか？\n（チーム全員の画面から削除されます）`)) {
                 try {
                     const latestList = await fetchCloudList();
-                    const updatedList = latestList.filter(t => t.id !== selectedId);
-                    await saveCloudList(updatedList);
-                    await loadSavedTournaments();
+                    cachedTournaments = latestList.filter(t => t.id !== selectedId);
+                    await saveCloudList(cachedTournaments);
+                    renderSavedTournaments();
                 } catch (err) {
                     alert("削除に失敗しました: " + err.message);
                 }
@@ -313,21 +445,35 @@
                 alert("選手名を入力してください。");
                 return;
             }
+            if (players.includes(name)) {
+                alert("すでに参加選手リストに入っています。");
+                return;
+            }
             players.push(name);
             input.value = "";
+            syncCheckboxesWithPlayers();
             updatePlayerTable();
         }
 
         function removePlayer(index) {
             players.splice(index, 1);
+            syncCheckboxesWithPlayers();
             updatePlayerTable();
         }
 
         function clearPlayers() {
-            if (confirm("登録されている選手をすべて削除しますか？")) {
+            if (confirm("選択されている参加選手をすべて解除しますか？")) {
                 players = [];
+                syncCheckboxesWithPlayers();
                 updatePlayerTable();
             }
+        }
+
+        function syncCheckboxesWithPlayers() {
+            const checkboxes = document.querySelectorAll('#clubMembersContainer input[type="checkbox"]');
+            checkboxes.forEach(cb => {
+                cb.checked = players.includes(cb.value);
+            });
         }
 
         function updatePlayerTable() {
@@ -351,7 +497,7 @@
             }
 
             if (count === 0) {
-                tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #888;">選手がまだ登録されていません</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #888;">選手がまだ選択されていません</td></tr>`;
                 return;
             }
 
@@ -361,7 +507,7 @@
                     <td>${index + 1}</td>
                     <td>${escapeHtml(player)}</td>
                     <td style="text-align: center;">
-                        <button class="danger-btn" style="padding: 4px 8px; font-size: 12px;" onclick="removePlayer(${index})">削除</button>
+                        <button class="danger-btn" style="padding: 4px 8px; font-size: 12px;" onclick="removePlayer(${index})">解除</button>
                     </td>
                 `;
                 tbody.appendChild(tr);
@@ -410,6 +556,7 @@
             });
 
             if (addedCount > 0) {
+                syncCheckboxesWithPlayers();
                 updatePlayerTable();
                 alert(`${addedCount}人の選手を追加しました！`);
             } else {
@@ -473,4 +620,4 @@
         }
     </script>
 </body>
-</html>S
+</html>
