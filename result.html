@@ -61,6 +61,19 @@
         .secondary-btn:hover {
             background-color: #7f8c8d;
         }
+        .share-btn {
+            background-color: #06c755; /* LINEグリーン */
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            padding: 14px 20px;
+            width: 100%;
+            border-radius: 6px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.12);
+        }
+        .share-btn:hover {
+            background-color: #05b34c;
+        }
         .podium-1 { background-color: #fff9db !important; font-weight: bold; }
         .podium-2 { background-color: #f1f3f5 !important; }
         .podium-3 { background-color: #fff4e6 !important; }
@@ -104,7 +117,14 @@
             </tbody>
         </table>
 
-        <div style="margin-top: 30px; display: flex; gap: 15px;">
+        <!-- LINE共有用URLコピーボタン -->
+        <div style="margin-top: 25px;">
+            <button id="copyResultUrlBtn" class="share-btn" onclick="copyResultShareUrl()">
+                📋 この結果ページのURLをコピー（LINE共有用）
+            </button>
+        </div>
+
+        <div style="margin-top: 15px; display: flex; gap: 15px; flex-wrap: wrap;">
             <button class="secondary-btn" style="flex: 1;" onclick="goTop()">トップ画面に戻る</button>
             <button style="flex: 1;" onclick="window.location.href='past_result.html'">過去の大会一覧を見る</button>
         </div>
@@ -112,7 +132,7 @@
 
     <script>
         const urlParams = new URLSearchParams(window.location.search);
-        const tournamentId = urlParams.get('id');
+        let tournamentId = urlParams.get('id');
         let tournament = null;
 
         window.onload = async function() {
@@ -127,6 +147,10 @@
                 } else {
                     const finished = list.filter(t => t.isFinished);
                     tournament = finished.length > 0 ? finished[finished.length - 1] : list[list.length - 1];
+                    if (tournament) {
+                        tournamentId = tournament.id;
+                        window.history.replaceState(null, '', `?id=${encodeURIComponent(tournamentId)}`);
+                    }
                 }
 
                 if (!tournament) {
@@ -147,6 +171,23 @@
                 banner.style.color = '#c0392b';
             }
         };
+
+        async function copyResultShareUrl() {
+            if (!tournament || !tournament.id) return;
+            const shareUrl = `${window.location.origin}/result.html?id=${encodeURIComponent(tournament.id)}`;
+            const btn = document.getElementById('copyResultUrlBtn');
+
+            try {
+                await navigator.clipboard.writeText(shareUrl);
+                const originalText = btn.textContent;
+                btn.textContent = '✅ コピーしました！LINE等に貼り付けできます';
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                }, 2500);
+            } catch (err) {
+                prompt("以下のURLをコピーしてLINE等で共有してください:", shareUrl);
+            }
+        }
 
         function renderResultTable() {
             const tbody = document.getElementById('resultTableBody');
