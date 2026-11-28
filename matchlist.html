@@ -120,6 +120,7 @@
             display: flex;
             align-items: center;
             gap: 10px;
+            flex-wrap: wrap;
         }
         button {
             background-color: #3498db;
@@ -239,7 +240,7 @@
         };
 
         async function fetchCloudList() {
-            const res = await fetch('/api/data?t=' + Date.now());
+            const res = await fetch('/api/data?t=' + Date.now(), { cache: 'no-store' });
             if (!res.ok) throw new Error('データの取得に失敗しました');
             return await res.json();
         }
@@ -295,12 +296,14 @@
                     if (p.points === undefined) p.points = 0;
                     if (p.gameDiff === undefined) p.gameDiff = 0;
                     if (p.matchesPlayed === undefined) p.matchesPlayed = 0;
+                    if (p.refereeCount === undefined) p.refereeCount = 0;
                     if (!p.opponents) p.opponents = [];
                 });
 
+                recalculateAllPlayersFromHistory();
+
                 document.getElementById('pageHeading').textContent = `${tournament.name} - 試合結果と審判`;
 
-                // 確定済みの過去ラウンドがある場合は「過去のラウンド結果を修正」ボタンを表示
                 const toggleBtn = document.getElementById('toggleHistoryBtn');
                 if (tournament.roundHistory.length > 0) {
                     toggleBtn.style.display = 'inline-block';
@@ -348,7 +351,6 @@
             await saveCloudList(latestList);
         }
 
-        // 過去ラウンド修正パネルの開閉
         function toggleHistoryPanel() {
             const card = document.getElementById('historyCard');
             if (card.style.display === 'none') {
@@ -360,7 +362,6 @@
                     opt.textContent = `第 ${h.round} ラウンド`;
                     select.appendChild(opt);
                 });
-                // 直前のラウンドをデフォルト選択
                 select.value = tournament.roundHistory.length - 1;
                 renderHistoryMatches();
                 card.style.display = 'block';
@@ -370,13 +371,11 @@
             }
         }
 
-        // 選択した過去ラウンドの対戦カードを描画
         function renderHistoryMatches() {
             const histIdx = parseInt(document.getElementById('historyRoundSelect').value, 10);
             const record = tournament.roundHistory[histIdx];
             if (!record) return;
 
-            // 編集用にディープコピー
             editingHistoryMatches = JSON.parse(JSON.stringify(record.matches));
             const container = document.getElementById('historyMatchesContainer');
             let html = "";
@@ -465,7 +464,6 @@
             }
         }
 
-        // 過去ラウンドの修正を確定し、全履歴から選手成績を再計算する
         async function saveHistoryEdit(regenerateCurrentRound) {
             for (let i = 0; i < editingHistoryMatches.length; i++) {
                 const m = editingHistoryMatches[i];
@@ -484,10 +482,8 @@
             const histIdx = parseInt(document.getElementById('historyRoundSelect').value, 10);
             tournament.roundHistory[histIdx].matches = editingHistoryMatches;
 
-            // 1. 全選手の成績を一旦リセットし、roundHistory 全体から再集計する
             recalculateAllPlayersFromHistory();
 
-            // 2. 現在の対戦カード内の選手オブジェクトの勝ち数表示も最新に同期
             if (regenerateCurrentRound) {
                 generateSwissPairings();
             } else {
@@ -511,18 +507,25 @@
             }
         }
 
-        // roundHistory にある全確定ラウンドの結果から各選手の成績をゼロから正確に再計算
         function recalculateAllPlayersFromHistory() {
             tournament.players.forEach(p => {
                 p.points = 0;
                 p.gameDiff = 0;
                 p.matchesPlayed = 0;
+                p.refereeCount = 0;
                 p.opponents = [];
                 p.hadBye = false;
             });
 
             tournament.roundHistory.forEach(record => {
                 record.matches.forEach(m => {
+                    if (m.referee) {
+                        const refPlayer = tournament.players.find(p => p.id === m.referee);
+                        if (refPlayer) {
+                            refPlayer.refereeCount += 1;
+                        }
+                    }
+
                     const p1 = tournament.players.find(p => p.id === m.player1.id);
                     if (!p1) return;
 
@@ -657,6 +660,7 @@
             renderMatches();
         }
 
+        // 累積審判回数が最も少ない人を優先して公平に割り当て
         function assignCourtsAndReferees(matches, restingPlayers) {
             const courtCount = tournament.courtCount || 3;
             let realMatches = matches.filter(m => m.result !== 'bye');
@@ -680,6 +684,12 @@
                 m.wave = 0;
             });
 
+            // 現在のラウンド内で割り当てた仮の審判回数をトラッキング
+            const tempRefCounts = {};
+            tournament.players.forEach(p => {
+                tempRefCounts[p.id] = p.refereeCount || 0;
+            });
+
             for (let w = 1; w <= waveCounter; w++) {
                 let waveMatches = realMatches.filter(m => m.wave === w);
                 if (waveMatches.length === 0) continue;
@@ -690,23 +700,35 @@
                     activePlayerIds.add(m.player2.id);
                 });
 
+                // このグループで試合をしていない選手を優先候補にする
                 let idlePlayers = tournament.players.filter(p => !activePlayerIds.has(p.id));
                 if (idlePlayers.length === 0) {
                     idlePlayers = [...tournament.players];
                 }
 
-                let idleIndex = 0;
                 waveMatches.forEach(match => {
-                    let refCandidate = null;
-                    for (let i = 0; i < idlePlayers.length; i++) {
-                        let candidate = idlePlayers[idleIndex % idlePlayers.length];
-                        idleIndex++;
-                        if (candidate.id !== match.player1.id && candidate.id !== match.player2.id) {
-                            refCandidate = candidate;
-                            break;
+                    const candidates = idlePlayers.filter(
+                        p => p.id !== match.player1.id && p.id !== match.player2.id
+                    );
+                    const pool = candidates.length > 0
+                        ? candidates
+                        : tournament.players.filter(p => p.id !== match.player1.id && p.id !== match.player2.id);
+
+                    // 審判回数が少ない順（同数ならランダムで分散）に並び替え
+                    const sortedPool = [...pool].sort((a, b) => {
+                        const countA = tempRefCounts[a.id] || 0;
+                        const countB = tempRefCounts[b.id] || 0;
+                        if (countA !== countB) {
+                            return countA - countB;
                         }
+                        return Math.random() - 0.5;
+                    });
+
+                    const chosen = sortedPool[0] || tournament.players[0];
+                    match.referee = chosen ? chosen.id : null;
+                    if (chosen) {
+                        tempRefCounts[chosen.id] = (tempRefCounts[chosen.id] || 0) + 1;
                     }
-                    match.referee = refCandidate ? refCandidate.id : idlePlayers[0].id;
                 });
             }
         }
@@ -755,7 +777,8 @@
                     let refOptions = `<option value="">審判を選択</option>`;
                     tournament.players.forEach(p => {
                         const isSelected = match.referee === p.id ? 'selected' : '';
-                        refOptions += `<option value="${p.id}" ${isSelected}>${escapeHtml(p.name)}</option>`;
+                        const refCnt = p.refereeCount || 0;
+                        refOptions += `<option value="${p.id}" ${isSelected}>${escapeHtml(p.name)} (審判${refCnt}回)</option>`;
                     });
 
                     const p1WinStyle = match.result === 'p1_win' ? 'display: inline-block;' : 'display: none;';
@@ -864,14 +887,12 @@
             btn.textContent = "☁️ クラウドに結果を保存中...";
 
             try {
-                // 確定したラウンドの試合結果を履歴配列に保存（後から修正できるようにするため）
                 if (!tournament.roundHistory) tournament.roundHistory = [];
                 tournament.roundHistory.push({
                     round: tournament.currentRound,
                     matches: JSON.parse(JSON.stringify(currentMatches))
                 });
 
-                // 履歴から全選手の成績を正確に再計算
                 recalculateAllPlayersFromHistory();
 
                 if (tournament.currentRound >= tournament.totalRounds) {
