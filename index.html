@@ -394,14 +394,36 @@
         let cachedTournaments = [];
         let isCreateOpen = true;
 
-        window.onload = async function() {
-            await initPageData();
-        };
+        document.addEventListener('DOMContentLoaded', function() {
+            initPageData();
+        });
+
+        async function fetchJsonSafe(url) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 10000);
+            try {
+                const res = await fetch(url, {
+                    signal: controller.signal,
+                    cache: 'no-store'
+                });
+                clearTimeout(timer);
+                const text = await res.text();
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}`);
+                }
+                const parsed = JSON.parse(text);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (err) {
+                clearTimeout(timer);
+                if (err.name === 'AbortError') {
+                    throw new Error('通信がタイムアウトしました（10秒）');
+                }
+                throw err;
+            }
+        }
 
         async function fetchCloudList() {
-            const res = await fetch('/api/data?t=' + Date.now());
-            if (!res.ok) throw new Error('大会データの取得に失敗しました');
-            return await res.json();
+            return await fetchJsonSafe('/api/data?t=' + Date.now());
         }
 
         async function saveCloudList(list) {
@@ -414,9 +436,7 @@
         }
 
         async function fetchClubMembers() {
-            const res = await fetch('/api/members?t=' + Date.now());
-            if (!res.ok) throw new Error('メンバー名簿の取得に失敗しました');
-            return await res.json();
+            return await fetchJsonSafe('/api/members?t=' + Date.now());
         }
 
         async function initPageData() {
@@ -428,20 +448,21 @@
                 ]);
                 cachedTournaments = tournaments;
                 clubMembers = members;
-                banner.style.display = 'none';
 
                 renderSavedTournaments();
                 renderClubMemberCheckboxes();
+                banner.style.display = 'none';
             } catch (err) {
-                banner.textContent = '⚠️ クラウドからのデータ読み込みに失敗しました。再読み込みしてください。';
+                banner.textContent = '⚠️ 読み込みエラー: ' + (err.message || err);
                 banner.style.background = '#fadbd8';
                 banner.style.color = '#c0392b';
             }
         }
 
         function renderSavedTournaments() {
-            const ongoingList = cachedTournaments.filter(t => !t.isFinished).reverse();
-            const finishedList = cachedTournaments.filter(t => t.isFinished === true);
+            const validTournaments = cachedTournaments.filter(t => t && typeof t === 'object');
+            const ongoingList = validTournaments.filter(t => !t.isFinished).reverse();
+            const finishedList = validTournaments.filter(t => t.isFinished === true);
 
             document.getElementById('finishedCount').textContent = finishedList.length;
 
@@ -454,9 +475,10 @@
             if (ongoingList.length > 0) {
                 select.innerHTML = "";
                 ongoingList.forEach(t => {
+                    const pLen = Array.isArray(t.players) ? t.players.length : 0;
                     const opt = document.createElement('option');
                     opt.value = t.id;
-                    opt.textContent = `${t.name} (第${t.currentRound}/${t.totalRounds}ラウンド・${t.players.length}名)`;
+                    opt.textContent = `${t.name || '無題の大会'} (第${t.currentRound || 1}/${t.totalRounds || 4}ラウンド・${pLen}名)`;
                     select.appendChild(opt);
                 });
 
@@ -480,12 +502,13 @@
         function updateActivePreview() {
             const select = document.getElementById('savedTournamentsSelect');
             const selectedId = select.value;
-            const target = cachedTournaments.find(t => t.id === selectedId);
+            const target = cachedTournaments.find(t => t && t.id === selectedId);
             if (!target) return;
 
-            document.getElementById('activePreviewTitle').textContent = target.name;
+            const pLen = Array.isArray(target.players) ? target.players.length : 0;
+            document.getElementById('activePreviewTitle').textContent = target.name || '無題の大会';
             document.getElementById('activePreviewMeta').textContent =
-                `進行状況: 第 ${target.currentRound} /${target.totalRounds} ラウンド ｜ 参加人数: ${target.players.length}名 ｜ 使用台数: ${target.courtCount || 3}台`;
+                `進行状況: 第 ${target.currentRound || 1} / ${target.totalRounds || 4} ラウンド ｜ 参加人数: ${pLen}名 ｜ 使用台数: ${target.courtCount || 3}台`;
         }
 
         function toggleCreateSection() {
@@ -524,18 +547,263 @@
         }
 
         function renderClubMemberCheckboxes() {
-            document.getElementById('registeredMemberCount').textContent = clubMembers.length;
+            const validMembers = clubMembers.filter(m => m && m.name);
+            document.getElementById('registeredMemberCount').textContent = validMembers.length;
             const container = document.getElementById('clubMembersContainer');
 
-            if (clubMembers.length === 0) {
+            if (validMembers.length === 0) {
                 container.innerHTML = `<span style="color: #888; font-size: 13px;">まだメンバーが登録されていません。上部の「メンバー名簿を編集」から登録できます。</span>`;
                 return;
             }
 
             container.innerHTML = "";
-            clubMembers.forEach(m => {
+            validMembers.forEach(m => {
                 const isChecked = players.includes(m.name);
                 const label = document.createElement('label');
                 label.className = 'member-checkbox-label';
                 label.innerHTML = `
-                    <input type="checkbox" value="${escapeHtml(m.name)}" ${isChecked ? 'checked' : ''} onchange="toggle
+                    <input type="checkbox" value="${escapeHtml(m.name)}" ${isChecked ? 'checked' : ''} onchange="toggleClubMember(this)">
+                    <span>${escapeHtml(m.name)}</span>
+                `;
+                container.appendChild(label);
+            });
+        }
+
+        function toggleClubMember(checkbox) {
+            const name = checkbox.value;
+            if (checkbox.checked) {
+                if (!players.includes(name)) {
+                    players.push(name);
+                }
+            } else {
+                players = players.filter(p => p !== name);
+            }
+            updatePlayerTable();
+        }
+
+        function selectAllClubMembers(selectAll) {
+            const checkboxes = document.querySelectorAll('#clubMembersContainer input[type="checkbox"]');
+            checkboxes.forEach(cb => {
+                cb.checked = selectAll;
+                const name = cb.value;
+                if (selectAll) {
+                    if (!players.includes(name)) players.push(name);
+                } else {
+                    players = players.filter(p => p !== name);
+                }
+            });
+            updatePlayerTable();
+        }
+
+        function goMembers() {
+            window.location.href = 'members.html';
+        }
+
+        function goPastResults() {
+            window.location.href = 'past_result.html';
+        }
+
+        function resumeSelectedTournament() {
+            const select = document.getElementById('savedTournamentsSelect');
+            const selectedId = select.value;
+            if (selectedId) {
+                window.location.href = `matchlist.html?id=${encodeURIComponent(selectedId)}`;
+            }
+        }
+
+        async function deleteSelectedTournament() {
+            const select = document.getElementById('savedTournamentsSelect');
+            const selectedId = select.value;
+            const target = cachedTournaments.find(t => t && t.id === selectedId);
+
+            if (target && confirm(`「${target.name}」のデータをクラウドから削除しますか？\n（チーム全員の画面から削除されます）`)) {
+                try {
+                    const latestList = await fetchCloudList();
+                    cachedTournaments = latestList.filter(t => t && t.id !== selectedId);
+                    await saveCloudList(cachedTournaments);
+                    renderSavedTournaments();
+                } catch (err) {
+                    alert("削除に失敗しました: " + err.message);
+                }
+            }
+        }
+
+        function addPlayer() {
+            const input = document.getElementById('playerName');
+            const name = input.value.trim();
+            if (name === "") {
+                alert("選手名を入力してください。");
+                return;
+            }
+            if (players.includes(name)) {
+                alert("すでに参加選手リストに入っています。");
+                return;
+            }
+            players.push(name);
+            input.value = "";
+            syncCheckboxesWithPlayers();
+            updatePlayerTable();
+        }
+
+        function removePlayer(index) {
+            players.splice(index, 1);
+            syncCheckboxesWithPlayers();
+            updatePlayerTable();
+        }
+
+        function clearPlayers() {
+            if (confirm("選択されている参加選手をすべて解除しますか？")) {
+                players = [];
+                syncCheckboxesWithPlayers();
+                updatePlayerTable();
+            }
+        }
+
+        function syncCheckboxesWithPlayers() {
+            const checkboxes = document.querySelectorAll('#clubMembersContainer input[type="checkbox"]');
+            checkboxes.forEach(cb => {
+                cb.checked = players.includes(cb.value);
+            });
+        }
+
+        function updatePlayerTable() {
+            const tbody = document.getElementById('playerTableBody');
+            const countSpan = document.getElementById('playerCount');
+            const recommendationDiv = document.getElementById('roundRecommendation');
+            
+            const count = players.length;
+            countSpan.textContent = count;
+            tbody.innerHTML = "";
+
+            if (count > 1) {
+                const recRounds = Math.ceil(Math.log2(count));
+                recommendationDiv.textContent = `※ 現在の人数 (${count}名) の推奨ラウンド数は ${recRounds} 回です。`;
+            } else {
+                recommendationDiv.textContent = `推奨ラウンド数: 参加人数に応じて自動計算されます`;
+            }
+
+            if (count === 0) {
+                tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #888;">選手がまだ選択されていません</td></tr>`;
+                return;
+            }
+
+            players.forEach((player, index) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${escapeHtml(player)}</td>
+                    <td style="text-align: center;">
+                        <button class="danger-btn" style="padding: 4px 8px; font-size: 12px;" onclick="removePlayer(${index})">解除</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function escapeHtml(str) {
+            return String(str).replace(/[&'`<>""]/g, function(match) {
+                const escape = {
+                    '&': '&amp;',
+                    "'": '&#x27;',
+                    '`': '&#x60;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                };
+                return escape[match];
+            });
+        }
+
+        document.getElementById('csvFileInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                parseCSV(e.target.result);
+                e.target.value = '';
+            };
+            reader.readAsText(file, 'UTF-8');
+        });
+
+        function parseCSV(text) {
+            const lines = text.split(/\r\n|\n/);
+            let addedCount = 0;
+
+            lines.forEach(line => {
+                const cols = line.split(',');
+                if (cols.length > 0) {
+                    const name = cols[0].trim().replace(/^["']|["']$/g, '');
+                    if (name !== "" && !players.includes(name)) {
+                        players.push(name);
+                        addedCount++;
+                    }
+                }
+            });
+
+            if (addedCount > 0) {
+                syncCheckboxesWithPlayers();
+                updatePlayerTable();
+                alert(`${addedCount}人の選手を追加しました！`);
+            } else {
+                alert("有効な選手データが見つかりませんでした。");
+            }
+        }
+
+        async function startTournament() {
+            const tNameInput = document.getElementById('tournamentName').value.trim();
+            const tName = tNameInput !== "" ? tNameInput : `卓球大会 (${new Date().toLocaleDateString()})`;
+            const rounds = parseInt(document.getElementById('totalRounds').value, 10);
+            const courts = parseInt(document.getElementById('courtCount').value, 10);
+
+            if (players.length < 2) {
+                alert("大会を開始するには2名以上の選手が必要です。");
+                return;
+            }
+            if (isNaN(rounds) || rounds < 1) {
+                alert("有効なラウンド数を入力してください。");
+                return;
+            }
+            if (isNaN(courts) || courts < 1) {
+                alert("有効な卓球台数（コート数）を入力してください。");
+                return;
+            }
+
+            const startBtn = document.getElementById('startBtn');
+            startBtn.disabled = true;
+            startBtn.textContent = "☁️ クラウドに保存して作成中...";
+
+            try {
+                const newTournament = {
+                    id: 't_' + Date.now(),
+                    name: tName,
+                    totalRounds: rounds,
+                    courtCount: courts,
+                    currentRound: 1,
+                    isFinished: false,
+                    round1Generated: false,
+                    currentMatches: [],
+                    players: players.map((name, index) => ({
+                        id: index + 1,
+                        name: name,
+                        points: 0,
+                        gameDiff: 0,
+                        matchesPlayed: 0,
+                        opponents: []
+                    }))
+                };
+
+                const latestList = await fetchCloudList();
+                latestList.push(newTournament);
+                await saveCloudList(latestList);
+
+                window.location.href = `matchlist.html?id=${encodeURIComponent(newTournament.id)}`;
+            } catch (err) {
+                alert("大会の保存に失敗しました: " + err.message);
+                startBtn.disabled = false;
+                startBtn.textContent = "新しく対戦表を作成して大会を開始";
+            }
+        }
+    </script>
+</body>
+</html>
