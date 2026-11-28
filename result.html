@@ -7,7 +7,7 @@
     <style>
         body {
             font-family: system-ui, -apple-system, sans-serif;
-            max-width: 950px;
+            max-width: 980px;
             margin: 0 auto;
             padding: 20px;
             background-color: #f7f9fa;
@@ -31,7 +31,7 @@
         }
         th, td {
             border: 1px solid #ddd;
-            padding: 12px;
+            padding: 12px 8px;
             text-align: center;
         }
         th {
@@ -77,6 +77,12 @@
         .podium-1 { background-color: #fff9db !important; font-weight: bold; }
         .podium-2 { background-color: #f1f3f5 !important; }
         .podium-3 { background-color: #fff4e6 !important; }
+        .tiebreak-note {
+            font-size: 12px;
+            color: #7f8c8d;
+            margin-top: 10px;
+            text-align: right;
+        }
         .loading-banner {
             text-align: center;
             padding: 12px;
@@ -106,16 +112,20 @@
                 <tr>
                     <th>順位</th>
                     <th>選手名</th>
-                    <th>勝ち点 (勝数)</th>
+                    <th>勝ち数</th>
                     <th>試合数</th>
                     <th>勝率</th>
                     <th>得失ゲーム差</th>
+                    <th title="対戦相手全員の合計勝ち数（ソルコフ）">相手勝数</th>
                 </tr>
             </thead>
             <tbody id="resultTableBody">
                 <!-- JavaScriptで動的挿入 -->
             </tbody>
         </table>
+        <div class="tiebreak-note">
+            ※ 順位決定順：① 勝ち数 ＞ ② 得失ゲーム差 ＞ ③ 相手勝数（ソルコフ） ＞ ④ 直接対決の勝敗
+        </div>
 
         <!-- LINE共有用URLコピーボタン -->
         <div style="margin-top: 25px;">
@@ -189,14 +199,78 @@
             }
         }
 
+        // ソルコフ（対戦相手の合計勝ち数）を計算
+        function calculateSolkov(player, allPlayers) {
+            const oppIds = player.opponents || [];
+            let sum = 0;
+            oppIds.forEach(oppId => {
+                const opp = allPlayers.find(p => p.id === oppId);
+                if (opp) {
+                    sum += (opp.points || 0);
+                }
+            });
+            // 不戦勝（BYE）があった場合は、試合数との差分だけ本人の勝ち数を仮想相手分として補正
+            const played = player.matchesPlayed || oppIds.length;
+            const byeCount = Math.max(0, played - oppIds.length);
+            sum += byeCount * (player.points || 0);
+            return sum;
+        }
+
+        // 直接対決の勝敗判定（playerAが勝っていれば -1、playerBが勝っていれば 1、未対戦なら 0）
+        function compareHeadToHead(playerA, playerB, roundHistory) {
+            if (!roundHistory || roundHistory.length === 0) return 0;
+            let aWins = 0;
+            let bWins = 0;
+
+            roundHistory.forEach(record => {
+                if (!record.matches) return;
+                record.matches.forEach(m => {
+                    if (m.result === 'bye' || !m.player1 || !m.player2) return;
+                    if (m.player1.id === playerA.id && m.player2.id === playerB.id) {
+                        if (m.result === 'p1_win') aWins++;
+                        else if (m.result === 'p2_win') bWins++;
+                    } else if (m.player1.id === playerB.id && m.player2.id === playerA.id) {
+                        if (m.result === 'p1_win') bWins++;
+                        else if (m.result === 'p2_win') aWins++;
+                    }
+                });
+            });
+
+            if (aWins !== bWins) {
+                return bWins - aWins; // aWinsが多い場合は負の値を返してAを上位に
+            }
+            return 0;
+        }
+
+        function sortPlayersWithTiebreak(tData) {
+            const playersWithSolkov = tData.players.map(p => ({
+                ...p,
+                solkov: calculateSolkov(p, tData.players)
+            }));
+
+            return playersWithSolkov.sort((a, b) => {
+                // 1. 勝ち数
+                if ((b.points || 0) !== (a.points || 0)) {
+                    return (b.points || 0) - (a.points || 0);
+                }
+                // 2. 得失ゲーム差
+                if ((b.gameDiff || 0) !== (a.gameDiff || 0)) {
+                    return (b.gameDiff || 0) - (a.gameDiff || 0);
+                }
+                // 3. ソルコフ（相手勝数）
+                if (b.solkov !== a.solkov) {
+                    return b.solkov - a.solkov;
+                }
+                // 4. 直接対決の勝敗
+                return compareHeadToHead(a, b, tData.roundHistory);
+            });
+        }
+
         function renderResultTable() {
             const tbody = document.getElementById('resultTableBody');
             tbody.innerHTML = "";
 
-            let sortedPlayers = [...tournament.players].sort((a, b) => {
-                if (b.points !== a.points) return b.points - a.points;
-                return b.gameDiff - a.gameDiff;
-            });
+            const sortedPlayers = sortPlayersWithTiebreak(tournament);
 
             sortedPlayers.forEach((p, index) => {
                 const played = p.matchesPlayed || tournament.totalRounds || 1;
@@ -213,11 +287,12 @@
                 tr.className = rowClass;
                 tr.innerHTML = `
                     <td style="font-weight: bold;">${rankText}</td>
-                    <td style="text-align: left; padding-left: 20px; font-weight: bold;">${escapeHtml(p.name)}</td>
+                    <td style="text-align: left; padding-left: 16px; font-weight: bold;">${escapeHtml(p.name)}</td>
                     <td>${wins} 勝</td>
                     <td>${played} 試合</td>
                     <td>${winRate.toFixed(1)}%</td>
                     <td>${p.gameDiff > 0 ? '+' + p.gameDiff : p.gameDiff}</td>
+                    <td>${p.solkov}</td>
                 `;
                 tbody.appendChild(tr);
             });
