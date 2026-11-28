@@ -646,11 +646,10 @@
             });
         }
 
-        function updatePlayerTable() {
+function updatePlayerTable() {
             const tbody = document.getElementById('playerTableBody');
             const countSpan = document.getElementById('playerCount');
             const recommendationDiv = document.getElementById('roundRecommendation');
-            const roundsInput = document.getElementById('totalRounds');
             
             const count = players.length;
             countSpan.textContent = count;
@@ -659,9 +658,6 @@
             if (count > 1) {
                 const recRounds = Math.ceil(Math.log2(count));
                 recommendationDiv.textContent = `※ 現在の人数 (${count}名) の推奨ラウンド数は ${recRounds} 回です。`;
-                if (document.activeElement !== roundsInput) {
-                    roundsInput.value = recRounds;
-                }
             } else {
                 recommendationDiv.textContent = `推奨ラウンド数: 参加人数に応じて自動計算されます`;
             }
